@@ -33,16 +33,17 @@ test("等速の球はプレート前端でリリースの x, z を保つ", () =>
   assert.ok(Math.abs(three.z + PLATE_FRONT_FT * 0.3048) < 1e-9);
 });
 
-test("フォーシームはストライクゾーンを通り、到達位置が軌道と一致する", () => {
-  const clip = getClip("ff");
+test("表示中の軌道は記録の plate_x ではなく、y=50 ft の係数から出る", () => {
+  const clip = getClip("ff-r-001");
+  assert.equal(clip.throws, "R");
+  assert.equal(clip.pitchType, "FF");
   assert.ok(clip.tPlate != null && clip.plateX != null && clip.plateZ != null);
+  assert.ok(clip.modelPlateX != null && clip.modelPlateZ != null);
   const atPlate = sampleAt(clip.samples, clip.tPlate);
   assert.ok(Math.abs(atPlate.y - PLATE_FRONT_FT) < 1e-6);
-  assert.ok(Math.abs(atPlate.x - clip.plateX) < 1e-6);
-  assert.ok(Math.abs(atPlate.z - clip.plateZ) < 1e-6);
-  assert.ok(Math.abs(clip.plateX) < 8.5 / 12);
-  assert.ok(clip.plateZ > clip.szBot && clip.plateZ < clip.szTop);
-  assert.ok(clip.release != null && clip.release.mph > 90 && clip.release.mph < 100);
+  assert.ok(Math.abs(atPlate.x - clip.modelPlateX) < 1e-6);
+  assert.ok(Math.abs(atPlate.z - clip.modelPlateZ) < 1e-6);
+  assert.ok(Math.hypot(atPlate.x - clip.plateX, atPlate.z - clip.plateZ) > 1e-6);
 });
 
 test("スピン軸 180° はバックスピンで真上に力が出る", () => {

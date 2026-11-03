@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/field";
-import { getClip } from "@/lib/clips";
+import { DEFAULT_CLIP_ID, getClip } from "@/lib/clips";
 import { getSim, setSim } from "@/lib/sim";
 import { Button } from "@/components/ui/button";
 import { Hud, selectClip } from "./hud";
 import { FieldScene } from "./scene";
 
 export default function Viewer() {
-  const [clipId, setClipId] = useState("ff");
+  const [clipId, setClipId] = useState(DEFAULT_CLIP_ID);
   const [preset, setPreset] = useState<CameraPreset>("catcher");
   const [night, setNight] = useState(false);
   const [showZone, setShowZone] = useState(true);
@@ -24,7 +24,7 @@ export default function Viewer() {
   const booted = useRef(false);
   if (!booted.current) {
     booted.current = true;
-    setSim({ t: getClip("ff").tStart, playing: false, clipId: "ff" });
+    setSim({ t: getClip(DEFAULT_CLIP_ID).tStart, playing: false, clipId: DEFAULT_CLIP_ID });
   }
 
   const clip = getClip(clipId);

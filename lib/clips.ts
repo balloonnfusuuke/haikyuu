@@ -1,5 +1,6 @@
 import { integrateBattedBall } from "./batted";
 import { PLATE_FRONT_FT, SZ_BOT_FT, SZ_TOP_FT } from "./field-constants";
+import { STATCAST_PITCHES, type StatcastPitch } from "./statcast";
 import { solvePitch, speedMph, timeAtY, type PitchKinematics } from "./trajectory";
 
 export type Sample = { t: number; x: number; y: number; z: number };
@@ -14,8 +15,17 @@ export type Clip = {
   tStart: number;
   tEnd: number;
   tPlate: number | null;
+  /** Statcast に記録された plate_x。計算値ではない。 */
   plateX: number | null;
+  /** Statcast に記録された plate_z。計算値ではない。 */
   plateZ: number | null;
+  /** y = 50 ft の初速・加速度とリリース位置から出したプレート前端。 */
+  modelPlateX: number | null;
+  modelPlateZ: number | null;
+  pitcher: string | null;
+  gameDate: string | null;
+  throws: "R" | "L" | null;
+  pitchType: "FF" | "SL" | "CU" | null;
   spinRpm: number | null;
   spinAxisDeg: number | null;
   release: { x: number; y: number; z: number; mph: number } | null;
@@ -30,71 +40,64 @@ export type PitchDef = PitchKinematics & {
   name: string;
   detail: string;
   color: string;
-  spinRpm: number;
-  spinAxisDeg: number;
+  recordedPlateX: number;
+  recordedPlateZ: number;
+  pitcher: string;
+  gameDate: string;
+  throws: "R" | "L";
+  pitchType: "FF" | "SL" | "CU";
+  spinRpm: number | null;
+  spinAxisDeg: number | null;
   szTop?: number;
   szBot?: number;
 };
 
-const PITCHES: PitchDef[] = [
-  {
-    id: "ff",
-    name: "フォーシーム",
-    detail: "右投手",
-    color: "#f4f1ea",
-    releaseX: -1.85,
-    releaseY: 54.05,
-    releaseZ: 5.9,
-    vx0: 5.15,
-    vy0: -139.2,
-    vz0: -6.4,
-    ax: -5.6,
-    ay: 27.5,
-    az: -15.2,
-    spinRpm: 2380,
-    spinAxisDeg: 221,
-    szTop: 3.48,
-    szBot: 1.55,
-  },
-  {
-    id: "sl",
-    name: "スライダー",
-    detail: "右投手",
-    color: "#f0a35e",
-    releaseX: -1.95,
-    releaseY: 54.0,
-    releaseZ: 5.65,
-    vx0: 4.8,
-    vy0: -125.5,
-    vz0: -3,
-    ax: 8.8,
-    ay: 23.5,
-    az: -34,
-    spinRpm: 2520,
-    spinAxisDeg: 84,
-    szTop: 3.48,
-    szBot: 1.55,
-  },
-  {
-    id: "cu",
-    name: "カーブ",
-    detail: "右投手",
-    color: "#d7c4ff",
-    releaseX: -1.7,
-    releaseY: 53.7,
-    releaseZ: 5.75,
-    vx0: 3,
-    vy0: -113.5,
-    vz0: 1,
-    ax: 4.8,
-    ay: 19.5,
-    az: -50.5,
-    spinRpm: 2710,
-    spinAxisDeg: 16,
-    szTop: 3.48,
-    szBot: 1.55,
-  },
-];
+const PITCH_LABEL: Record<StatcastPitch["pitchType"], string> = {
+  FF: "フォーシーム",
+  SL: "スライダー",
+  CU: "カーブ",
+};
+const HAND_LABEL: Record<StatcastPitch["throws"], string> = {
+  R: "右投手",
+  L: "左投手",
+};
+const PITCH_COLOR: Record<StatcastPitch["pitchType"], string> = {
+  FF: "#f4f1ea",
+  SL: "#f0a35e",
+  CU: "#d7c4ff",
+};
+
+function pitchFromStatcast(pitch: StatcastPitch): PitchDef {
+  const hand = HAND_LABEL[pitch.throws];
+  const name = PITCH_LABEL[pitch.pitchType];
+  return {
+    id: pitch.id,
+    name: `${name} · ${pitch.pitcher}`,
+    detail: `${hand} · ${pitch.gameDate}`,
+    color: PITCH_COLOR[pitch.pitchType],
+    recordedPlateX: pitch.plateX,
+    recordedPlateZ: pitch.plateZ,
+    pitcher: pitch.pitcher,
+    gameDate: pitch.gameDate,
+    throws: pitch.throws,
+    pitchType: pitch.pitchType,
+    releaseX: pitch.releaseX,
+    releaseY: pitch.releaseY,
+    releaseZ: pitch.releaseZ,
+    vx0: pitch.vx0,
+    vy0: pitch.vy0,
+    vz0: pitch.vz0,
+    ax: pitch.ax,
+    ay: pitch.ay,
+    az: pitch.az,
+    spinRpm: pitch.spinRpm,
+    spinAxisDeg: pitch.spinAxis,
+    szTop: pitch.szTop ?? undefined,
+    szBot: pitch.szBot ?? undefined,
+  };
+}
+
+const PITCHES: PitchDef[] = STATCAST_PITCHES.map(pitchFromStatcast);
 
 function dedupeSamples(samples: Sample[]): Sample[] {
   const sorted = [...samples].sort((a, b) => a.t - b.t);
@@ -132,8 +135,14 @@ export function buildPitchClip(def: PitchDef): Clip {
     tStart: solved.tRelease,
     tEnd: tCatch,
     tPlate: solved.tPlate,
-    plateX: plate.x,
-    plateZ: plate.z,
+    plateX: def.recordedPlateX,
+    plateZ: def.recordedPlateZ,
+    modelPlateX: plate.x,
+    modelPlateZ: plate.z,
+    pitcher: def.pitcher,
+    gameDate: def.gameDate,
+    throws: def.throws,
+    pitchType: def.pitchType,
     spinRpm: def.spinRpm,
     spinAxisDeg: def.spinAxisDeg,
     release: {
@@ -170,6 +179,12 @@ function buildLiner(): Clip {
     tPlate: null,
     plateX: null,
     plateZ: null,
+    modelPlateX: null,
+    modelPlateZ: null,
+    pitcher: null,
+    gameDate: null,
+    throws: null,
+    pitchType: null,
     spinRpm: null,
     spinAxisDeg: null,
     release: null,
@@ -180,7 +195,11 @@ function buildLiner(): Clip {
   };
 }
 
-export const CLIPS: Clip[] = [...PITCHES.map(buildPitchClip), buildLiner()];
+export const PITCH_CLIPS: Clip[] = PITCHES.map(buildPitchClip);
+
+export const DEFAULT_CLIP_ID = PITCH_CLIPS[0]?.id ?? "liner";
+
+export const CLIPS: Clip[] = [...PITCH_CLIPS, buildLiner()];
 
 export function getClip(id: string): Clip {
   return CLIPS.find((clip) => clip.id === id) ?? CLIPS[0];

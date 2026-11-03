@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { magnusDirection } from "@/lib/spin";
 import { CLIPS, getClip, type Clip } from "@/lib/clips";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
+import { STATCAST_FILE, STATCAST_SUMMARY } from "@/lib/statcast";
 import type { StadiumReport } from "@/lib/field";
 import { getReadout, getSim, setSim } from "@/lib/sim";
 import { propSource } from "./ball";
@@ -118,14 +119,18 @@ export function Hud({
   const readout = getReadout();
   const atPlate =
     clip.kind === "pitch" &&
-    clip.plateX != null &&
-    clip.plateZ != null &&
+    clip.modelPlateX != null &&
+    clip.modelPlateZ != null &&
     readout.valid &&
     Math.abs(readout.y - PLATE_FRONT_FT) < 0.02;
-  const dxCm = atPlate && clip.plateX != null ? (readout.x - clip.plateX) * 30.48 : null;
-  const dzCm = atPlate && clip.plateZ != null ? (readout.z - clip.plateZ) * 30.48 : null;
-  const gapCm = dxCm != null && dzCm != null ? Math.hypot(dxCm, dzCm) : null;
-  const matched = gapCm != null && gapCm < 0.5;
+  const liveVsModelCm =
+    atPlate && clip.modelPlateX != null && clip.modelPlateZ != null
+      ? Math.hypot(readout.x - clip.modelPlateX, readout.z - clip.modelPlateZ) * 30.48
+      : null;
+  const modelGapCm =
+    clip.modelPlateX != null && clip.modelPlateZ != null && clip.plateX != null && clip.plateZ != null
+      ? Math.hypot(clip.modelPlateX - clip.plateX, clip.modelPlateZ - clip.plateZ) * 30.48
+      : null;
   const elapsedMs = (sim.t - clip.tStart) * 1000;
   const plateMs = clip.tPlate == null ? null : (clip.tPlate - clip.tStart) * 1000;
 
@@ -136,37 +141,59 @@ export function Hud({
         <div className="mt-1 flex items-end justify-between gap-3">
           <h2 className="text-lg font-medium">{clip.kind === "pitch" ? "プレート前端" : "打球の落下点"}</h2>
           {clip.kind === "pitch" && (
-            <p
-              className={`font-mono text-2xl ${matched ? "text-[#8fd0a8]" : atPlate ? "text-[#ff6b5a]" : "text-[#8b968c]"}`}
-            >
-              {matched ? "一致" : atPlate ? "ずれ" : "通過前"}
+            <p className="text-right font-mono text-2xl text-[#f4f1ea]">
+              {modelGapCm == null ? "—" : `${modelGapCm.toFixed(2)} cm`}
+              <span className="mt-1 block text-xs font-sans text-[#8b968c]">記録との差</span>
             </p>
           )}
         </div>
         <p className="mt-1 text-sm leading-relaxed text-[#c5cdc4]">
           {clip.kind === "pitch"
-            ? "データの plate_x / plate_z と、3D のボール中心を逆変換した値です。正の x は捕手から見て右、一塁側です。"
+            ? "plate_x / plate_z は Statcast の記録です。ボールの軌道は y = 50 ft の vx0・vy0・vz0・ax・ay・az とリリース位置だけで計算し、記録の位置には合わせていません。正の x は捕手から見て右、一塁側です。"
             : "落下点も同じ座標変換を通しています。原点はプレート先端、y は投手方向です。"}
         </p>
       </div>
 
       {clip.kind === "pitch" && clip.plateX != null && clip.plateZ != null ? (
         <div className="grid grid-cols-2 gap-3">
-          <Metric label="plate_x" value={feet(clip.plateX, 3)} unit="ft" />
-          <Metric label="plate_z" value={feet(clip.plateZ, 3)} unit="ft" />
-          <Metric label="ボールの x" value={feet(readout.x, 3)} unit="ft" />
-          <Metric label="ボールの z" value={feet(readout.z, 3)} unit="ft" />
+          <Metric label="plate_x 記録" value={feet(clip.plateX, 3)} unit="ft" />
+          <Metric label="plate_z 記録" value={feet(clip.plateZ, 3)} unit="ft" />
+          <Metric label="計算の x" value={feet(clip.modelPlateX, 3)} unit="ft" />
+          <Metric label="計算の z" value={feet(clip.modelPlateZ, 3)} unit="ft" />
           <Metric label="ボールの y" value={feet(readout.y, 3)} unit="ft" />
           <Metric
             label="差"
-            value={gapCm == null ? "—" : gapCm.toFixed(2)}
-            unit={gapCm == null ? undefined : "cm"}
+            value={modelGapCm == null ? "—" : modelGapCm.toFixed(2)}
+            unit={modelGapCm == null ? undefined : "cm"}
           />
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           <Metric label="落下 x" value={feet(clip.landing?.x, 1)} unit="ft" />
           <Metric label="落下 y" value={feet(clip.landing?.y, 1)} unit="ft" />
+        </div>
+      )}
+
+      {clip.kind === "pitch" && (
+        <div className="rounded-md border border-[#2a342c] px-3 py-2 text-xs leading-relaxed text-[#c5cdc4]">
+          <p>
+            {STATCAST_FILE.start} の Statcast {STATCAST_SUMMARY.count} 球（右投手・左投手、フォーシーム・スライダー・カーブ）。
+            vx0・vy0・vz0・ax・ay・az は y = 50 ft の値で、t = 0 はその面です。記録との差は平均{" "}
+            {STATCAST_SUMMARY.meanCm.toFixed(3)} cm、最大 {STATCAST_SUMMARY.maxCm.toFixed(3)} cm。
+          </p>
+          {liveVsModelCm != null && (
+            <p className="mt-1">今のボールと計算位置の差は {liveVsModelCm.toFixed(3)} cm。</p>
+          )}
+          <ol className="mt-2 list-decimal space-y-1 pl-4">
+            {STATCAST_SUMMARY.top.map((row) => (
+              <li key={row.pitch.id}>
+                {row.pitch.pitcher}（{row.pitch.throws === "R" ? "右" : "左"}・
+                {row.pitch.pitchType === "FF" ? "フォーシーム" : row.pitch.pitchType === "SL" ? "スライダー" : "カーブ"}
+                ）{row.distanceCm.toFixed(3)} cm。記録 ({row.pitch.plateX.toFixed(3)}, {row.pitch.plateZ.toFixed(3)})、計算 (
+                {row.calcX.toFixed(3)}, {row.calcZ.toFixed(3)})
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 
@@ -179,23 +206,65 @@ export function Hud({
         szBot={clip.szBot}
       />
       <p className="text-xs leading-relaxed text-[#8b968c]">
-        白抜きがデータの到達位置、赤が今のボールです。下の白い五角形がプレート。黄枠がストライクゾーン（幅はプレート、高さ{" "}
+        白抜きが記録の plate_x / plate_z、赤が今のボールです。下の白い五角形がプレート。黄枠がストライクゾーン（幅はプレート、高さ{" "}
         {feet(clip.szBot, 2)}–{feet(clip.szTop, 2)} ft）。
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        {CLIPS.map((item) => (
-          <Button
-            key={item.id}
-            type="button"
-            size="sm"
-            variant={item.id === clip.id ? "default" : "outline"}
-            onClick={() => onClip(item.id)}
-          >
-            {item.name}
-          </Button>
-        ))}
-      </div>
+      <label className="block text-sm">
+        <span className="mb-1 block text-xs text-[#8b968c]">投球</span>
+        <select
+          aria-label="投球"
+          className="w-full rounded-md border border-[#2a342c] bg-[#0e1210] px-2 py-2"
+          value={clip.id}
+          onChange={(event) => onClip(event.target.value)}
+        >
+          <optgroup label="右投手・フォーシーム">
+            {CLIPS.filter((item) => item.throws === "R" && item.pitchType === "FF").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="右投手・スライダー">
+            {CLIPS.filter((item) => item.throws === "R" && item.pitchType === "SL").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="右投手・カーブ">
+            {CLIPS.filter((item) => item.throws === "R" && item.pitchType === "CU").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="左投手・フォーシーム">
+            {CLIPS.filter((item) => item.throws === "L" && item.pitchType === "FF").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="左投手・スライダー">
+            {CLIPS.filter((item) => item.throws === "L" && item.pitchType === "SL").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="左投手・カーブ">
+            {CLIPS.filter((item) => item.throws === "L" && item.pitchType === "CU").map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.pitcher}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="打球">
+            <option value="liner">ライナー</option>
+          </optgroup>
+        </select>
+      </label>
       <p className="text-sm text-[#c5cdc4]">
         {clip.detail}
         {clip.release ? `・リリース ${clip.release.mph.toFixed(1)} mph` : ""}
@@ -320,10 +389,9 @@ export function Hud({
         <summary className="cursor-pointer">確認手順</summary>
         <ol className="mt-2 list-decimal space-y-2 pl-4 leading-relaxed text-[#d5ddd4]">
           <li>左上に赤い警告が無く、「プレート先端から投手板前縁まで」が 18.44 m 前後なら目印は合っています。</li>
-          <li>フォーシームを選び、「プレート通過へ」を押す。途中を見るなら「通過で止める」をオンにして「再生」。</li>
-          <li>plate_x / plate_z とボールの x / z の差が 0.5 cm 未満なら「一致」です。</li>
-          <li>捕手視点で、琥珀色のリングの中にボールがあること。一塁側に切り替えても同じリングの中です。</li>
-          <li>上の図で白抜きと赤点が重なります。正の x は図の右、一塁側です。</li>
+          <li>投球を選び「プレート通過へ」を押す。plate_x / plate_z は記録、計算の x / z は y = 50 ft の初速と加速度から出した位置です。</li>
+          <li>差は、その計算位置と記録の距離です。琥珀色のリングは記録の位置に置いています。</li>
+          <li>上の図で白抜きが記録、赤点が今のボールです。正の x は図の右、一塁側です。</li>
           <li>縫い目は「ボール」視点、速度 0.1x。回転は release_spin_rate と spin_axis です。</li>
         </ol>
       </details>
