@@ -1,0 +1,63 @@
+export type SimState = {
+  t: number;
+  playing: boolean;
+  speed: number;
+  holdAtPlate: boolean;
+  clipId: string;
+};
+
+export type BallReadout = {
+  valid: boolean;
+  x: number;
+  y: number;
+  z: number;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+};
+
+type Listener = () => void;
+
+const listeners = new Set<Listener>();
+
+let state: SimState = {
+  t: 0,
+  playing: false,
+  speed: 0.25,
+  holdAtPlate: true,
+  clipId: "ff",
+};
+
+let readout: BallReadout = {
+  valid: false,
+  x: 0,
+  y: 0,
+  z: 0,
+  worldX: 0,
+  worldY: 0,
+  worldZ: 0,
+};
+
+export const ballWorld = { x: 0, y: 1.1, z: 2, ready: false };
+
+export function getSim(): SimState {
+  return state;
+}
+
+export function getReadout(): BallReadout {
+  return readout;
+}
+
+export function setSim(patch: Partial<SimState>): void {
+  state = { ...state, ...patch };
+  listeners.forEach((listener) => listener());
+}
+
+export function setReadout(next: BallReadout): void {
+  readout = next;
+}
+
+export function subscribeSim(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}

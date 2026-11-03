@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0e1210;
+  --foreground: #f4f1ea;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  font-family: var(--font-sans), "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+input[type="range"] {
+  accent-color: #e24b4b;
+}
