@@ -57,6 +57,16 @@ export function setReadout(next: BallReadout): void {
   readout = next;
 }
 
+declare global {
+  interface Window {
+    __plateControl?: {
+      getSim: () => SimState;
+      setSim: (patch: Partial<SimState>) => void;
+      beginPlaySample: () => void;
+    };
+  }
+}
+
 export function subscribeSim(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

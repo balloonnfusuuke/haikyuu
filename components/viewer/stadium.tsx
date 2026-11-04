@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { useFrame } from "@react-three/fiber";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MARKER } from "@/lib/field-constants";
 import { reportFromMarkers, type StadiumReport } from "@/lib/field";
 import type { Vec3 } from "@/lib/coords";
+import { markStadiumShown, noteDracoSpan, noteFetch, noteLoadStart, noteParse } from "@/lib/perf";
 import { buildPlaceholder } from "./placeholder";
 
 function worldVec(object: THREE.Object3D): Vec3 {
@@ -62,6 +64,31 @@ export function applyAo(root: THREE.Object3D, intensity: number): void {
   });
 }
 
+function timeDraco(draco: DRACOLoader) {
+  const loader = draco as DRACOLoader & {
+    decodeGeometry: (buffer: ArrayBuffer, taskConfig: unknown) => Promise<THREE.BufferGeometry>;
+  };
+  const original = loader.decodeGeometry.bind(loader);
+  loader.decodeGeometry = (buffer, taskConfig) => {
+    const start = performance.now();
+    return original(buffer, taskConfig).then((geometry) => {
+      noteDracoSpan(start, performance.now());
+      return geometry;
+    });
+  };
+}
+
+/** メッシュをシーンに入れたフレームの描画が終わってから、表示完了にする。 */
+function ShownMark() {
+  const marked = useRef(false);
+  useFrame(() => {
+    if (marked.current) return;
+    marked.current = true;
+    requestAnimationFrame(() => markStadiumShown());
+  });
+  return null;
+}
+
 export function Stadium({
   shiftRubber,
   aoMapIntensity,
@@ -77,13 +104,16 @@ export function Stadium({
 
   useEffect(() => {
     let cancelled = false;
+    noteLoadStart();
     const draco = new DRACOLoader();
     draco.setDecoderPath("/draco/");
+    timeDraco(draco);
     const loader = new GLTFLoader();
     loader.setDRACOLoader(draco);
 
     (async () => {
       try {
+        const fetchStart = performance.now();
         const response = await fetch("/models/stadium.glb");
         if (cancelled) return;
         if (!response.ok) {
@@ -93,8 +123,11 @@ export function Stadium({
           return;
         }
         const buffer = await response.arrayBuffer();
+        noteFetch(performance.now() - fetchStart);
         if (cancelled) return;
+        const parseStart = performance.now();
         const gltf = await loader.parseAsync(buffer, "");
+        noteParse(performance.now() - parseStart);
         if (cancelled) return;
         enableShadows(gltf.scene);
         setRoot(gltf.scene);
@@ -150,5 +183,10 @@ export function Stadium({
   }, [root, source, error, shiftRubber, aoMapIntensity, onReport]);
 
   if (!root) return null;
-  return <primitive object={root} />;
+  return (
+    <>
+      <primitive object={root} />
+      <ShownMark />
+    </>
+  );
 }

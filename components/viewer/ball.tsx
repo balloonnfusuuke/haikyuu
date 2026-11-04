@@ -6,7 +6,16 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { statcastToWorld, worldToStatcast, type FieldFrame } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
 import { sampleAt } from "@/lib/clips";
-import { noteFps } from "@/lib/perf";
+import {
+  estimateSceneTextureBytes,
+  noteEnvironment,
+  noteFps,
+  noteFrameInfo,
+  notePlayFrame,
+  noteRendererMemory,
+  noteTextureEstimate,
+  perf,
+} from "@/lib/perf";
 import { seamAxis } from "@/lib/seam";
 import { ballWorld, getSim, setReadout, setSim } from "@/lib/sim";
 import { rpmToRadPerSec, spinAxisWorld } from "@/lib/spin";
@@ -29,6 +38,7 @@ export function PitchBall({
   showAxis: boolean;
 }) {
   const gl = useThree((state) => state.gl);
+  const scene = useThree((state) => state.scene);
   const ballRef = useRef<THREE.Group>(null);
   const axisRef = useRef<THREE.Mesh>(null);
   const spin = useRef(new THREE.Vector3(0, 1, 0));
@@ -40,6 +50,7 @@ export function PitchBall({
   const worldPoint = useRef(new THREE.Vector3());
   const fpsStamp = useRef(0);
   const fpsFrames = useRef(0);
+  const textureTick = useRef(0);
   const clipRef = useRef(clip);
   clipRef.current = clip;
   const [model, setModel] = useState<THREE.Object3D | null>(null);
@@ -93,6 +104,15 @@ export function PitchBall({
       noteFps((fpsFrames.current * 1000) / (now - fpsStamp.current));
       fpsFrames.current = 0;
       fpsStamp.current = now;
+    }
+    noteFrameInfo(gl.info.render.calls, gl.info.render.triangles, gl.info.render.lines);
+    if (playing) notePlayFrame(delta, gl.info.render.calls, gl.info.render.triangles, gl.info.render.lines);
+    noteRendererMemory(gl.info.memory.textures, gl.info.memory.geometries);
+    noteEnvironment(Boolean(scene.environment));
+    textureTick.current += 1;
+    if (perf.textureBytes === 0 || textureTick.current % 20 === 0) {
+      const estimate = estimateSceneTextureBytes(scene);
+      if (estimate.bytes > 0) noteTextureEstimate(estimate.bytes, estimate.images);
     }
 
     const sample = sampleAt(current.samples, t);

@@ -402,10 +402,24 @@ export function Hud({
         </p>
       )}
 
-      <p className="font-mono text-xs text-[#8b968c]">
-        初回読み込み {perf.loadMs == null ? "計測中" : `${(perf.loadMs / 1000).toFixed(2)} 秒`}
-        {" · "}
-        {perf.fps > 0 ? `${perf.fps.toFixed(0)} fps` : "fps 計測中"}
+      <p className="font-mono text-xs leading-relaxed text-[#8b968c]">
+        初回表示 {perf.loadMs == null ? "計測中" : `${(perf.loadMs / 1000).toFixed(2)} 秒`}
+        {perf.dracoMs != null ? `（Draco ${(perf.dracoMs / 1000).toFixed(2)} 秒）` : ""}
+        {perf.fetchMs != null && perf.parseMs != null
+          ? ` · 取得 ${(perf.fetchMs / 1000).toFixed(2)} 秒 · 解釈 ${(perf.parseMs / 1000).toFixed(2)} 秒`
+          : ""}
+      </p>
+      <p className="font-mono text-xs leading-relaxed text-[#8b968c]">
+        {perf.playFrames > 0
+          ? `再生 ${perf.playAvgFps?.toFixed(0)} fps 平均 / ${perf.playMinFps?.toFixed(0)} fps 最低（${perf.playFrames} フレーム）`
+          : perf.fps > 0
+            ? `直近 ${perf.fps.toFixed(0)} fps`
+            : "fps 計測中"}
+      </p>
+      <p className="font-mono text-xs leading-relaxed text-[#8b968c]">
+        {perf.calls > 0
+          ? `draw ${perf.calls}${perf.callsMin != null && perf.callsMax != null && perf.callsMin !== perf.callsMax ? `（${perf.callsMin}–${perf.callsMax}）` : ""} · 三角形 ${Math.round(perf.triangles).toLocaleString("ja-JP")} · info.textures ${perf.textures} · テクスチャ見積もり ${(perf.textureBytes / (1024 * 1024)).toFixed(0)} MB`
+          : "描画は再生すると出ます"}
       </p>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[#aeb8ad]">

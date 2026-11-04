@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/field";
 import { DEFAULT_CLIP_ID, getClip } from "@/lib/clips";
-import { markStadiumReady } from "@/lib/perf";
+import { beginPlaySample, noteGpu, perf } from "@/lib/perf";
 import { getSim, setSim } from "@/lib/sim";
 import { Button } from "@/components/ui/button";
 import { Hud, selectClip } from "./hud";
@@ -32,8 +32,12 @@ export default function Viewer() {
 
   const clip = getClip(clipId);
   const onReport = useCallback((next: StadiumReport) => {
-    markStadiumReady();
     setReport(next);
+  }, []);
+
+  useEffect(() => {
+    window.__platePerf = perf;
+    window.__plateControl = { getSim, setSim, beginPlaySample };
   }, []);
 
   useEffect(() => {
@@ -97,6 +101,15 @@ export default function Viewer() {
               gl.toneMapping = THREE.AgXToneMapping;
               gl.toneMappingExposure = 0.82;
               gl.shadowMap.type = THREE.PCFShadowMap;
+              const context = gl.getContext();
+              const debug = context.getExtension("WEBGL_debug_renderer_info");
+              const vendor = debug
+                ? String(context.getParameter(debug.UNMASKED_VENDOR_WEBGL))
+                : String(context.getParameter(context.VENDOR));
+              const gpu = debug
+                ? String(context.getParameter(debug.UNMASKED_RENDERER_WEBGL))
+                : String(context.getParameter(context.RENDERER));
+              noteGpu(vendor, gpu);
             }}
           >
             <FieldScene
