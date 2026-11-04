@@ -48,6 +48,40 @@ class Park(unittest.TestCase):
         self.assertEqual(flown["bip"], "double")
         self.assertEqual(flown["how"], "wall")
 
+    def test_outside_the_foul_line_is_not_a_home_run(self):
+        outside = play(108, 32, 47, 400)
+        self.assertFalse(outside["fair"])
+        self.assertNotEqual(outside["bip"], "home_run")
+        self.assertIn("ファウル", outside["note"])
+        on_the_line = play(105, 32, 45, 380)
+        self.assertTrue(on_the_line["fair"])
+        self.assertEqual(on_the_line["bip"], "home_run")
+        down_the_line = play(100, 35, 40, 360)
+        self.assertTrue(down_the_line["fair"])
+        self.assertEqual(down_the_line["bip"], "home_run")
+        ground = play(95, -6, 50, 160, ground=True)
+        self.assertEqual(ground["how"], "foul")
+        self.assertEqual(ground["label"], "ファウル")
+
+    def test_a_fair_sample_called_foul_stays_a_foul_when_it_hooks_outside(self):
+        decision = {
+            "outcome": "in_play",
+            "bip": "home_run",
+            "bbType": "fly_ball",
+            "exitSpeed": 108.0,
+            "launchAngle": 32.0,
+            "spray": 47.0,
+            "hcX": None,
+            "hcY": None,
+            "hitDistance": 400.0,
+            "foul": False,
+        }
+        apply_park(decision, 0.0, 2.5)
+        self.assertEqual(decision["outcome"], "foul")
+        self.assertIsNone(decision["bip"])
+        self.assertTrue(decision["foul"])
+        self.assertTrue(decision["park"]["note"].startswith("MLB では本塁打"))
+
     def test_ground_balls_split_into_outs_and_hits(self):
         at_short = play(90, -8, -16, 140, ground=True)
         self.assertEqual(at_short["bip"], "out")

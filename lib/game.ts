@@ -71,6 +71,7 @@ export type PitchDecision = {
 export type ParkCall = {
   bip: string;
   how: string;
+  fair: boolean;
   fielder: string | null;
   cleared: boolean;
   carryFt: number;

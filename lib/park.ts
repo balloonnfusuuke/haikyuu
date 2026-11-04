@@ -1,11 +1,13 @@
 import { integrateContact, type BattedSample } from "@/lib/batted";
-import { FENCE_HEIGHT_FT, fenceDistance, sprayAngle } from "@/lib/fence";
+import { FENCE_FOUL_DEG, FENCE_HEIGHT_FT, fenceDistance, sprayAngle } from "@/lib/fence";
 
-export type ParkHow = "home_run" | "catch" | "wall" | "hit";
+export type ParkHow = "home_run" | "catch" | "wall" | "hit" | "foul";
 
 export type ParkPlay = {
-  bip: "out" | "single" | "double" | "triple" | "home_run";
+  bip: "out" | "single" | "double" | "triple" | "home_run" | "foul";
   how: ParkHow;
+  /** ファウルラインとファウルポールの内側。ライン上とポール自体はフェア。 */
+  fair: boolean;
   fielder: string | null;
   cleared: boolean;
   carryFt: number;
@@ -46,6 +48,9 @@ const OUTFIELD_ANGLES = [
   { name: "中堅", angle: 0 },
   { name: "右翼", angle: 22 },
 ];
+
+/** ポールの太さ 0.2 m と球の半径。この中に中心が入ればポールに当たったとみなす。 */
+const POLE_REACH_FT = 0.78;
 
 const BB_LABEL: Record<string, string> = {
   ground_ball: "ゴロ",
@@ -141,11 +146,12 @@ function firstPlay(
   fenceFt: number | null,
   ground: boolean,
   speedMph: number,
+  minZ = 0,
 ): { name: string; index: number } | null {
   const roster = fielders();
   for (let index = 0; index < samples.length; index += 1) {
     const sample = samples[index];
-    if (sample.z > 8) continue;
+    if (sample.z < minZ || sample.z > 8) continue;
     if (fenceFt != null && radiusOf(sample) > fenceFt - 2) continue;
     const clock = playClock(sample, ground, speedMph);
     if (clock < 0.2) continue;
@@ -185,11 +191,19 @@ function dropDown(at: BattedSample): BattedSample[] {
   return extra;
 }
 
-function playLabel(bip: ParkPlay["bip"], how: ParkHow, fielder: string | null, bbType: string | null | undefined): string {
+function playLabel(
+  bip: ParkPlay["bip"],
+  how: ParkHow,
+  fielder: string | null,
+  bbType: string | null | undefined,
+  fair: boolean,
+): string {
+  if (how === "foul") return "ファウル";
   if (bip === "home_run") return "本塁打";
   if (how === "wall" && bip === "triple") return "フェンス際の三塁打";
   if (how === "wall") return "フェンス直撃の二塁打";
   if (how === "catch") {
+    if (!fair) return `${fielder}がファウルを捕球`;
     return bbType === "ground_ball" ? `${fielder}がゴロを処理` : `${fielder}が捕球`;
   }
   const contact = bbType ? BB_LABEL[bbType] ?? "" : "";
@@ -217,9 +231,48 @@ function playNote(input: {
   return `落下 ${landing} ft。フェンスまで ${short} ft`;
 }
 
+type Territory = "fair" | "pole_clear" | "pole_hit" | "foul";
+
+/** 直線の打球が、ラインの内側か、ポールに当たるか、外か。 */
+function territory(angle: number, samples: BattedSample[], ground: boolean): Territory {
+  if (Math.abs(angle) <= FENCE_FOUL_DEG) return "fair";
+  const sign = angle > 0 ? 1 : -1;
+  const line = sign * FENCE_FOUL_DEG;
+  const fenceFt = fenceDistance(line);
+  const lineRad = (line * Math.PI) / 180;
+  const pole = { x: Math.sin(lineRad) * fenceFt, y: Math.cos(lineRad) * fenceFt };
+  const rad = (angle * Math.PI) / 180;
+  const dx = Math.sin(rad);
+  const dy = Math.cos(rad);
+  const miss = Math.abs(pole.x * dy - pole.y * dx);
+  const along = pole.x * dx + pole.y * dy;
+  if (miss > POLE_REACH_FT || along <= 0) return "foul";
+  for (let index = 1; index < samples.length; index += 1) {
+    const before = samples[index - 1];
+    const after = samples[index];
+    const near = radiusOf(before);
+    const far = radiusOf(after);
+    if (near < along && far >= along && far > near) {
+      const span = (along - near) / (far - near);
+      const z = before.z + (after.z - before.z) * span;
+      if (!ground && z > FENCE_HEIGHT_FT) return "pole_clear";
+      return "pole_hit";
+    }
+  }
+  return "foul";
+}
+
+function foulNote(angle: number, landingFt: number): string {
+  const side = angle > 0 ? "一塁側" : "三塁側";
+  const pole = fenceDistance(Math.sign(angle) * FENCE_FOUL_DEG);
+  if (landingFt >= pole - 8) return `${side}のファウルポールの外。本塁打にならない`;
+  return `${side}のファウルラインの外`;
+}
+
 /**
  * 打球の速度・角度・方向で飛ばし、甲子園のフェンスと守備位置で結果を決める。
  * ゴロは hc で止め、フライの飛距離は Statcast の距離。越えた球だけ本塁打。
+ * ファウルラインの外はファウル。ポールに当たった球だけフェアになる。
  */
 export function resolveFairBall(input: FairBallInput): { samples: BattedSample[]; landing: BattedSample; play: ParkPlay } {
   const angle = sprayAngle(input.aimX, input.aimY);
@@ -236,10 +289,36 @@ export function resolveFairBall(input: FairBallInput): { samples: BattedSample[]
     targetY: Math.cos(rad) * travel,
     ground: input.ground,
   });
+  const end = flown.samples[flown.samples.length - 1] ?? flown.landing;
+  const zone = territory(angle, flown.samples, input.ground);
+  if (zone === "foul") {
+    const airCatch = input.ground ? null : firstPlay(flown.samples, null, false, input.speedMph, 1.5);
+    const caughtAt = airCatch ? flown.samples[airCatch.index] : end;
+    const landingFt = radiusOf(caughtAt);
+    const how: ParkHow = airCatch ? "catch" : "foul";
+    const bip: ParkPlay["bip"] = airCatch ? "out" : "foul";
+    return {
+      samples: airCatch ? flown.samples.slice(0, airCatch.index + 1) : flown.samples,
+      landing: caughtAt,
+      play: {
+        bip,
+        how,
+        fair: false,
+        fielder: airCatch?.name ?? null,
+        cleared: false,
+        carryFt: input.carryFt,
+        fenceFt: fenceDistance(Math.sign(angle) * FENCE_FOUL_DEG),
+        heightFt: null,
+        landingFt,
+        note: foulNote(angle, landingFt),
+        label: playLabel(bip, how, airCatch?.name ?? null, input.bbType, false),
+      },
+    };
+  }
+
   const crossing = findCrossing(flown.samples, input.ground);
   const limit = crossing.kind === "none" ? null : crossing.fenceFt;
   const catchPlay = firstPlay(flown.samples, limit, input.ground, input.speedMph);
-  const end = flown.samples[flown.samples.length - 1] ?? flown.landing;
   const endRadius = radiusOf(end);
   const reachedWall = endRadius >= fenceFt - 8;
 
@@ -282,17 +361,21 @@ export function resolveFairBall(input: FairBallInput): { samples: BattedSample[]
   }
 
   const landingFt = radiusOf(landing);
+  let note = playNote({ cleared, how, fenceFt, heightFt, landingFt });
+  if (zone === "pole_clear" && how === "home_run") note = "ファウルポールに当たって越えた";
+  if (zone === "pole_hit" && how === "wall") note = "ファウルポールに当たった";
   const play: ParkPlay = {
     bip,
     how,
+    fair: true,
     fielder,
     cleared,
     carryFt: input.carryFt,
     fenceFt,
     heightFt,
     landingFt,
-    note: playNote({ cleared, how, fenceFt, heightFt, landingFt }),
-    label: playLabel(bip, how, fielder, input.bbType),
+    note,
+    label: playLabel(bip, how, fielder, input.bbType, true),
   };
   return { samples, landing, play };
 }

@@ -6,6 +6,9 @@ import math
 
 from plate_game.fence import fence_distance, fence_height_ft, spray_angle
 
+POLE_REACH_FT = 0.78
+FOUL_LINE_DEG = 45.0
+
 GRAVITY_FT = -32.174
 DRAG_K = 0.00128
 FTPS_PER_MPH = 5280 / 3600
@@ -189,9 +192,11 @@ def _charge_slow_roller(end: dict) -> str | None:
     return None if best is None else best[1]
 
 
-def _first_play(samples: list[dict], fence_ft: float | None, ground: bool, speed_mph: float) -> dict | None:
+def _first_play(
+    samples: list[dict], fence_ft: float | None, ground: bool, speed_mph: float, min_z: float = 0
+) -> dict | None:
     for index, sample in enumerate(samples):
-        if sample["z"] > 8:
+        if sample["z"] < min_z or sample["z"] > 8:
             continue
         if fence_ft is not None and _radius(sample) > fence_ft - 2:
             continue
@@ -214,7 +219,9 @@ def _outfield_late(point: dict, ground: bool, speed_mph: float) -> float:
     return best
 
 
-def _label(bip: str, how: str, fielder: str | None, bb_type: str | None) -> str:
+def _label(bip: str, how: str, fielder: str | None, bb_type: str | None, fair: bool) -> str:
+    if how == "foul":
+        return "ファウル"
     if bip == "home_run":
         return "本塁打"
     if how == "wall" and bip == "triple":
@@ -222,6 +229,8 @@ def _label(bip: str, how: str, fielder: str | None, bb_type: str | None) -> str:
     if how == "wall":
         return "フェンス直撃の二塁打"
     if how == "catch":
+        if not fair:
+            return f"{fielder}がファウルを捕球"
         return f"{fielder}がゴロを処理" if bb_type == "ground_ball" else f"{fielder}が捕球"
     contact = BB_LABEL.get(bb_type or "", "")
     hit = HIT_LABEL.get(bip, "安打")
@@ -239,6 +248,41 @@ def _note(cleared: bool, how: str, fence_ft: float, height_ft: float | None, lan
     if how == "catch":
         return f"本塁から {landing} ft で処理。フェンスまで {short} ft"
     return f"落下 {landing} ft。フェンスまで {short} ft"
+
+
+def _territory(angle: float, samples: list[dict], ground: bool) -> str:
+    if abs(angle) <= FOUL_LINE_DEG:
+        return "fair"
+    sign = 1 if angle > 0 else -1
+    line = sign * FOUL_LINE_DEG
+    fence_ft = fence_distance(line)
+    line_rad = math.radians(line)
+    pole_x = math.sin(line_rad) * fence_ft
+    pole_y = math.cos(line_rad) * fence_ft
+    rad = math.radians(angle)
+    dx, dy = math.sin(rad), math.cos(rad)
+    miss = abs(pole_x * dy - pole_y * dx)
+    along = pole_x * dx + pole_y * dy
+    if miss > POLE_REACH_FT or along <= 0:
+        return "foul"
+    for index in range(1, len(samples)):
+        before, after = samples[index - 1], samples[index]
+        near, far = _radius(before), _radius(after)
+        if near < along <= far and far > near:
+            span = (along - near) / (far - near)
+            z = before["z"] + (after["z"] - before["z"]) * span
+            if not ground and z > fence_height_ft():
+                return "pole_clear"
+            return "pole_hit"
+    return "foul"
+
+
+def _foul_note(angle: float, landing_ft: float) -> str:
+    side = "一塁側" if angle > 0 else "三塁側"
+    pole = fence_distance(math.copysign(FOUL_LINE_DEG, angle))
+    if landing_ft >= pole - 8:
+        return f"{side}のファウルポールの外。本塁打にならない"
+    return f"{side}のファウルラインの外"
 
 
 def resolve_fair_ball(
@@ -271,10 +315,31 @@ def resolve_fair_ball(
         ground,
     )
     samples = flown["samples"]
+    end = samples[-1] if samples else flown["landing"]
+    zone = _territory(angle, samples, ground)
+    if zone == "foul":
+        air = None if ground else _first_play(samples, None, False, speed_mph, 1.5)
+        caught = samples[air["index"]] if air else end
+        landing_ft = _radius(caught)
+        how = "catch" if air else "foul"
+        bip = "out" if air else "foul"
+        return {
+            "bip": bip,
+            "how": how,
+            "fair": False,
+            "fielder": air["name"] if air else None,
+            "cleared": False,
+            "carryFt": carry_ft,
+            "fenceFt": fence_distance(math.copysign(FOUL_LINE_DEG, angle)),
+            "heightFt": None,
+            "landingFt": round(landing_ft, 2),
+            "note": _foul_note(angle, landing_ft),
+            "label": _label(bip, how, air["name"] if air else None, bb_type, False),
+        }
+
     crossing = _find_crossing(samples, ground)
     limit = None if crossing["kind"] == "none" else crossing["fenceFt"]
     catch = _first_play(samples, limit, ground, speed_mph)
-    end = samples[-1] if samples else flown["landing"]
     end_radius = _radius(end)
     reached_wall = end_radius >= fence_ft - 8
     charger = _charge_slow_roller(end) if ground else None
@@ -305,17 +370,23 @@ def resolve_fair_ball(
         landing = end
 
     landing_ft = _radius(landing)
+    note = _note(cleared, how, fence_ft, height_ft, landing_ft)
+    if zone == "pole_clear" and how == "home_run":
+        note = "ファウルポールに当たって越えた"
+    if zone == "pole_hit" and how == "wall":
+        note = "ファウルポールに当たった"
     return {
         "bip": bip,
         "how": how,
+        "fair": True,
         "fielder": fielder,
         "cleared": cleared,
         "carryFt": carry_ft,
         "fenceFt": fence_ft,
         "heightFt": None if height_ft is None else round(height_ft, 2),
         "landingFt": round(landing_ft, 2),
-        "note": _note(cleared, how, fence_ft, height_ft, landing_ft),
-        "label": _label(bip, how, fielder, bb_type),
+        "note": note,
+        "label": _label(bip, how, fielder, bb_type, True),
     }
 
 
@@ -328,10 +399,10 @@ def _aim(decision: dict) -> tuple[float, float]:
 
 
 def apply_park(decision: dict, plate_x: float, plate_z: float) -> dict:
-    """インプレーだけ、MLB の記録を甲子園のフェンスと守備で置き換える。"""
+    """打球は甲子園のライン、ポール、フェンス、守備で結果を置き換える。"""
     decision["mlbBip"] = decision.get("bip")
     decision["park"] = None
-    if decision.get("outcome") != "in_play":
+    if decision.get("outcome") not in {"in_play", "foul"}:
         return decision
     if decision.get("exitSpeed") is None or decision.get("launchAngle") is None:
         return decision
@@ -354,6 +425,13 @@ def apply_park(decision: dict, plate_x: float, plate_z: float) -> dict:
     )
     if decision.get("mlbBip") == "home_run" and play["bip"] != "home_run":
         play["note"] = "MLB では本塁打。" + play["note"]
-    decision["bip"] = play["bip"]
+    if not play["fair"] and play["how"] != "catch":
+        decision["outcome"] = "foul"
+        decision["bip"] = None
+        decision["foul"] = True
+    else:
+        decision["outcome"] = "in_play"
+        decision["bip"] = play["bip"]
+        decision["foul"] = False
     decision["park"] = play
     return decision

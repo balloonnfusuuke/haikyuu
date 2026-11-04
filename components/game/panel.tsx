@@ -543,7 +543,7 @@ function contactFrom(thrown: ThrownPitch): ContactFlight {
     batSpeed: decision.batSpeed,
     swingLength: decision.swingLength,
     noise: hit ? "hit" : "catch",
-    fair: decision.outcome === "in_play",
+    fair: decision.outcome === "in_play" || decision.outcome === "foul",
   };
 }
 

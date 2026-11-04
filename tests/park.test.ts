@@ -63,6 +63,22 @@ test("壁に届くが越えない球は二塁打で、壁の中には入らな�
   assert.ok(Math.hypot(end.x, end.y) < fenceDistance(0) + 1);
 });
 
+test("ファウルラインの外は本塁打にせず、ライン上はフェア", () => {
+  const outside = play({ ev: 108, la: 32, angle: 47, carry: 400 });
+  assert.equal(outside.play.fair, false);
+  assert.notEqual(outside.play.bip, "home_run");
+  assert.match(outside.play.note, /ファウル/);
+  const onTheLine = play({ ev: 105, la: 32, angle: 45, carry: 380 });
+  assert.equal(onTheLine.play.fair, true);
+  assert.equal(onTheLine.play.bip, "home_run");
+  const downTheLine = play({ ev: 100, la: 35, angle: 40, carry: 360 });
+  assert.equal(downTheLine.play.fair, true);
+  assert.equal(downTheLine.play.bip, "home_run");
+  const ground = play({ ev: 95, la: -6, angle: 50, carry: 160, ground: true });
+  assert.equal(ground.play.how, "foul");
+  assert.equal(ground.play.label, "ファウル");
+});
+
 test("遊撃の前のゴロはアウト、三遊間は単打、遅いゴロは投手が取る", () => {
   const atShort = play({ ev: 90, la: -8, angle: -16, carry: 140, ground: true });
   assert.equal(atShort.play.bip, "out");
