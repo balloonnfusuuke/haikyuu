@@ -12,7 +12,7 @@ from plate_game.engine import (
     throw_pitch,
 )
 from plate_game.store import split_games
-from plate_game.rates import Bucket, Table, batter_swing, shrink
+from plate_game.rates import Bucket, Table, batter_swing, batter_whiff, shrink
 from plate_game.zone import cell_for, cell_label, is_strike_cell, is_strike_location
 
 
@@ -68,6 +68,31 @@ class Rates(unittest.TestCase):
         chase, _samples = batter_swing(batter, league, "FF", 0, "0-0")
         self.assertGreater(heart, 0.7)
         self.assertLess(chase, 0.25)
+
+    def test_slider_whiff_is_not_pulled_down_to_the_sinker(self):
+        batter = Table()
+        league = Table()
+        league.buckets["*|*|*"] = Bucket(n=800, swing=400, whiff=110)
+        league.buckets["SL|*|*"] = Bucket(n=400, swing=200, whiff=80)
+        league.buckets["SI|*|*"] = Bucket(n=400, swing=200, whiff=30)
+        batter.add("SL", 12, "0-0", Bucket(n=200, swing=100, whiff=40))
+        batter.add("SI", 12, "0-0", Bucket(n=200, swing=100, whiff=14))
+        slider, _samples = batter_whiff(batter, league, "SL", 12, "0-0")
+        sinker, _samples = batter_whiff(batter, league, "SI", 12, "0-0")
+        self.assertGreater(slider, 0.32)
+        self.assertLess(sinker, 0.22)
+
+    def test_chase_whiff_stays_above_the_heart(self):
+        batter = Table()
+        league = Table()
+        league.buckets["SL|*|*"] = Bucket(n=600, swing=300, whiff=90)
+        batter.add("SL", 12, "0-0", Bucket(n=400, swing=200, whiff=30))
+        for cell in (0, 4, 20, 24):
+            batter.add("SL", cell, "0-0", Bucket(n=40, swing=20, whiff=12))
+        heart, _samples = batter_whiff(batter, league, "SL", 12, "0-0")
+        chase, _samples = batter_whiff(batter, league, "SL", 0, "0-0")
+        self.assertLess(heart, 0.22)
+        self.assertGreater(chase, 0.45)
 
 
 class Count(unittest.TestCase):

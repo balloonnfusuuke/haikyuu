@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from plate_game.zone import is_strike_cell
+
 PITCH_GROUP = {
     "FF": "FF",
     "FA": "FF",
@@ -263,18 +265,28 @@ def _steps(group: str, cell: int, count: str, priors: tuple[int, int, int, int, 
     )
 
 
+def _zone_sum(table: Table, group: str | None, cell: int, count: str | None) -> Bucket:
+    """同じ球種の、ゾーンの内か外か。外周の1マスは球が少なく、外角の空振りが平均に消える。"""
+    inside = is_strike_cell(cell)
+    total = Bucket()
+    for other in range(25):
+        if is_strike_cell(other) == inside:
+            total.add(table.sum_matching(group, other, count))
+    return total
+
+
 def _nested(
     batter: Table,
     league_rate_for,
     group: str,
     cell: int,
     count: str,
-    priors: tuple[int, int, int, int, int],
+    steps: tuple,
     numerator: str,
     denominator: str,
 ) -> tuple[float, int]:
     estimate = league_rate_for(group, cell, count)
-    for item_group, item_cell, item_count, prior in _steps(group, cell, count, priors):
+    for item_group, item_cell, item_count, prior in steps:
         bucket = batter.sum_matching(item_group, item_cell, item_count)
         estimate = shrink(getattr(bucket, numerator), getattr(bucket, denominator), estimate, prior)
     exact = batter.sum_matching(group, cell, count)
@@ -288,23 +300,24 @@ def batter_swing(batter: Table, league: Table, group: str, cell: int, count: str
         group,
         cell,
         count,
-        (36, 18, 12, 8, 6),
+        _steps(group, cell, count, (36, 18, 12, 8, 6)),
         "swing",
         "n",
     )
 
 
 def batter_whiff(batter: Table, league: Table, group: str, cell: int, count: str) -> tuple[float, int]:
-    return _nested(
-        batter,
-        lambda g, c, k: league_whiff(league, g, c, k),
-        group,
-        cell,
-        count,
-        (28, 16, 14, 10, 8),
-        "whiff",
-        "swing",
-    )
+    """球種のあと、ゾーンの内と外。1マスまで細かくすると、外の空振りが球種の平均まで下がる。"""
+    estimate = league_whiff(league, group, cell, count)
+    for bucket, prior in (
+        (batter.sum_matching(group, None, None), 14),
+        (_zone_sum(batter, group, cell, None), 10),
+        (_zone_sum(batter, group, cell, count), 8),
+    ):
+        estimate = shrink(bucket.whiff, bucket.swing, estimate, prior)
+    exact = batter.sum_matching(group, cell, None)
+    estimate = shrink(exact.whiff, exact.swing, estimate, 20)
+    return estimate, batter.sum_matching(group, cell, count).swing
 
 
 def batter_foul(batter: Table, league: Table, group: str, cell: int, count: str) -> tuple[float, int]:
@@ -314,7 +327,7 @@ def batter_foul(batter: Table, league: Table, group: str, cell: int, count: str)
         group,
         cell,
         count,
-        (24, 14, 12, 8, 6),
+        _steps(group, cell, count, (24, 14, 12, 8, 6)),
         "foul",
         "contact",
     )

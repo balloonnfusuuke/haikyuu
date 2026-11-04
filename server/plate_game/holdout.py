@@ -181,11 +181,14 @@ def simulate_outcomes(
     return _rates(tally)
 
 
-def _pair(actual: dict, simulated: dict, key: str) -> dict:
+def _pair(actual: dict, simulated: dict, trained: float, key: str) -> dict:
+    """baseline は学習年の成績を、そのままテスト年に当てた差。"""
     return {
         "actual": actual[key],
         "simulated": simulated[key],
+        "trained": trained,
         "gap": simulated[key] - actual[key],
+        "baseline": trained - actual[key],
     }
 
 
@@ -205,6 +208,7 @@ def compare_batter(
     repeat_alpha: float = 0.06,
 ) -> dict:
     actual = summarize_actual(seen)
+    trained = summarize_actual(contact)
     simulated = simulate_outcomes(
         seen,
         table,
@@ -228,13 +232,16 @@ def compare_batter(
         "repeatAlpha": repeat_alpha,
     }
     for key in RATE_KEYS:
-        report[key] = _pair(actual, simulated, key)
+        report[key] = _pair(actual, simulated, trained[key], key)
     report["swingByCount"] = {
         key: {
             "actual": actual["swingByCount"][key]["rate"],
+            "trained": trained["swingByCount"][key]["rate"],
             "simulated": simulated["swingByCount"][key]["rate"],
             "gap": simulated["swingByCount"][key]["rate"] - actual["swingByCount"][key]["rate"],
+            "baseline": trained["swingByCount"][key]["rate"] - actual["swingByCount"][key]["rate"],
             "actualPitches": actual["swingByCount"][key]["pitches"],
+            "trainedPitches": trained["swingByCount"][key]["pitches"],
             "simulatedPitches": simulated["swingByCount"][key]["pitches"],
         }
         for key in COUNT_KEYS

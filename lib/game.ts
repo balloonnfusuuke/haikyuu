@@ -114,9 +114,13 @@ export async function throwToApi(body: {
   return response.json();
 }
 
-export type RateGap = { actual: number; simulated: number; gap: number };
+export type RateGap = { actual: number; trained: number; simulated: number; gap: number; baseline: number };
 
-export type CountGap = RateGap & { actualPitches: number; simulatedPitches: number };
+export type CountGap = RateGap & {
+  actualPitches: number;
+  trainedPitches: number;
+  simulatedPitches: number;
+};
 
 export type HoldoutBatter = {
   batterId: number;

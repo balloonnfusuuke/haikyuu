@@ -676,8 +676,8 @@ function HoldoutNote({ report, error, loading }: { report: HoldoutBatter | null;
           <tr className="text-left text-[#8b968c]">
             <th className="py-0.5 font-normal">項目</th>
             <th className="py-0.5 font-normal">2025</th>
-            <th className="py-0.5 font-normal">AI</th>
-            <th className="py-0.5 font-normal">差</th>
+            <th className="py-0.5 font-normal">AI差</th>
+            <th className="py-0.5 font-normal">2024差</th>
           </tr>
         </thead>
         <tbody>
@@ -687,8 +687,8 @@ function HoldoutNote({ report, error, loading }: { report: HoldoutBatter | null;
               <tr key={row.key}>
                 <td className="py-0.5">{row.label}</td>
                 <td className="font-mono">{percent(rate.actual)}</td>
-                <td className="font-mono">{percent(rate.simulated)}</td>
                 <td className="font-mono">{signed(rate.gap)}</td>
+                <td className="font-mono">{signed(rate.baseline)}</td>
               </tr>
             );
           })}
@@ -698,15 +698,15 @@ function HoldoutNote({ report, error, loading }: { report: HoldoutBatter | null;
               <tr key={count}>
                 <td className="py-0.5">スイング {count}</td>
                 <td className="font-mono">{percent(rate.actual)}</td>
-                <td className="font-mono">{percent(rate.simulated)}</td>
                 <td className="font-mono">{signed(rate.gap)}</td>
+                <td className="font-mono">{signed(rate.baseline)}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
       <p className="mt-2">
-        空振り率はスイングしたうち、三振率と四球率は打席のうち、ゴロ・ライナー・フライと安打・長打・本塁打はインプレーのうちです。
+        2024差は、その年の成績をそのまま2025年に当てた差です。AI差がこれと同じくらいなら、ずれは選手の変化です。空振りは球種と、ゾーンの内と外で分け、ライナーは同じ結果の実際の打球の種類を使っています。
       </p>
     </div>
   );
