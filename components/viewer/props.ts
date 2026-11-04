@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { BALL_RADIUS_M } from "@/lib/field-constants";
 
@@ -88,16 +89,41 @@ export async function loadGltf(url: string): Promise<THREE.Group | null> {
   const response = await fetch(url);
   if (!response.ok) return null;
   const buffer = await response.arrayBuffer();
+  const draco = new DRACOLoader();
+  draco.setDecoderPath("/draco/");
   const loader = new GLTFLoader();
-  const gltf = await loader.parseAsync(buffer, "");
-  gltf.scene.traverse((object) => {
+  loader.setDRACOLoader(draco);
+  try {
+    const gltf = await loader.parseAsync(buffer, "");
+    gltf.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+    });
+    return gltf.scene;
+  } finally {
+    draco.dispose();
+  }
+}
+
+/** 縫い目が遠くで点線にならないよう、球のテクスチャは異方性フィルタを最大にする。 */
+export function maxAnisotropy(root: THREE.Object3D, anisotropy: number): void {
+  root.traverse((object) => {
     const mesh = object as THREE.Mesh;
-    if (mesh.isMesh) {
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      const standard = material as THREE.MeshStandardMaterial;
+      for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap"] as const) {
+        const texture = standard[key];
+        if (!texture) continue;
+        texture.anisotropy = anisotropy;
+        texture.needsUpdate = true;
+      }
     }
   });
-  return gltf.scene;
 }
 
 /** 読み込んだ球を公式半径に合わせ、中心を原点へ戻す。 */

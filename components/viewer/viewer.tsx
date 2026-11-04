@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/field";
 import { DEFAULT_CLIP_ID, getClip } from "@/lib/clips";
+import { markStadiumReady } from "@/lib/perf";
 import { getSim, setSim } from "@/lib/sim";
 import { Button } from "@/components/ui/button";
 import { Hud, selectClip } from "./hud";
@@ -16,6 +17,8 @@ export default function Viewer() {
   const [night, setNight] = useState(false);
   const [showZone, setShowZone] = useState(true);
   const [showAxis, setShowAxis] = useState(false);
+  const [ao, setAo] = useState(1);
+  const [tone, setTone] = useState<"agx" | "aces">("agx");
   const [report, setReport] = useState<StadiumReport | null>(null);
   const [shiftRubber, setShiftRubber] = useState(0);
   const [dayHdri, setDayHdri] = useState(false);
@@ -28,7 +31,10 @@ export default function Viewer() {
   }
 
   const clip = getClip(clipId);
-  const onReport = useCallback((next: StadiumReport) => setReport(next), []);
+  const onReport = useCallback((next: StadiumReport) => {
+    markStadiumReady();
+    setReport(next);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -86,9 +92,10 @@ export default function Viewer() {
             shadows
             dpr={[1, 1.75]}
             camera={{ position: [0, 1.1, 2.5], fov: 38, near: 0.05, far: 420 }}
-            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+            gl={{ antialias: true, toneMapping: THREE.AgXToneMapping }}
             onCreated={({ gl }) => {
-              gl.toneMappingExposure = 1;
+              gl.toneMapping = THREE.AgXToneMapping;
+              gl.toneMappingExposure = 0.82;
               gl.shadowMap.type = THREE.PCFShadowMap;
             }}
           >
@@ -99,6 +106,8 @@ export default function Viewer() {
               showZone={showZone}
               showAxis={showAxis}
               shiftRubber={shiftRubber}
+              aoMapIntensity={ao}
+              tone={tone}
               dayHdri={dayHdri}
               nightHdri={nightHdri}
               report={report}
@@ -159,6 +168,10 @@ export default function Viewer() {
         nightHdri={nightHdri}
         showZone={showZone}
         showAxis={showAxis}
+        ao={ao}
+        tone={tone}
+        onAo={setAo}
+        onTone={setTone}
         onClip={(id) => selectClip(id, setClipId)}
         onNight={setNight}
         onZone={setShowZone}

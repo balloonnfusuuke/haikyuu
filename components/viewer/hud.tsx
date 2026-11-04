@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { magnusDirection } from "@/lib/spin";
 import { CLIPS, getClip, type Clip } from "@/lib/clips";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
+import { perf } from "@/lib/perf";
+import { seamKind } from "@/lib/seam";
 import { STATCAST_FILE, STATCAST_SUMMARY } from "@/lib/statcast";
 import type { StadiumReport } from "@/lib/field";
 import { getReadout, getSim, setSim } from "@/lib/sim";
@@ -97,10 +99,14 @@ export function Hud({
   nightHdri,
   showZone,
   showAxis,
+  ao,
+  tone,
   onClip,
   onNight,
   onZone,
   onAxis,
+  onAo,
+  onTone,
 }: {
   clip: Clip;
   report: StadiumReport | null;
@@ -109,10 +115,14 @@ export function Hud({
   nightHdri: boolean;
   showZone: boolean;
   showAxis: boolean;
+  ao: number;
+  tone: "agx" | "aces";
   onClip: (id: string) => void;
   onNight: (night: boolean) => void;
   onZone: (value: boolean) => void;
   onAxis: (value: boolean) => void;
+  onAo: (value: number) => void;
+  onTone: (tone: "agx" | "aces") => void;
 }) {
   useAnimationFrame();
   const sim = getSim();
@@ -348,6 +358,12 @@ export function Hud({
       )}
 
       <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant={tone === "agx" ? "secondary" : "outline"} onClick={() => onTone("agx")}>
+          AgX
+        </Button>
+        <Button type="button" size="sm" variant={tone === "aces" ? "secondary" : "outline"} onClick={() => onTone("aces")}>
+          ACES
+        </Button>
         <Button type="button" size="sm" variant={night ? "outline" : "secondary"} onClick={() => onNight(false)}>
           昼
         </Button>
@@ -361,6 +377,36 @@ export function Hud({
           回転軸
         </Button>
       </div>
+
+      <label className="block text-sm">
+        <span className="mb-1 flex justify-between text-xs text-[#8b968c]">
+          <span>AO の強さ</span>
+          <span className="font-mono">{ao.toFixed(2)}</span>
+        </span>
+        <input
+          aria-label="AO の強さ"
+          className="w-full"
+          type="range"
+          min={0}
+          max={2}
+          step={0.05}
+          value={ao}
+          onChange={(event) => onAo(Number(event.target.value))}
+        />
+      </label>
+
+      {clip.kind === "pitch" && (
+        <p className="text-xs leading-relaxed text-[#8b968c]">
+          縫い目は {seamKind(clip.pitchType) === "two" ? "+Y（ツーシーム）" : "+X（フォーシーム）"} を spin_axis
+          に合わせてから、release_spin_rate で回しています。
+        </p>
+      )}
+
+      <p className="font-mono text-xs text-[#8b968c]">
+        初回読み込み {perf.loadMs == null ? "計測中" : `${(perf.loadMs / 1000).toFixed(2)} 秒`}
+        {" · "}
+        {perf.fps > 0 ? `${perf.fps.toFixed(0)} fps` : "fps 計測中"}
+      </p>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[#aeb8ad]">
         <dt>球場</dt>

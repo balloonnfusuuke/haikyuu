@@ -28,7 +28,7 @@ export function FieldLighting({
       {!skyBackground && <color attach="background" args={[night ? "#071018" : "#9ec4e4"]} />}
       {file ? (
         <Suspense fallback={null}>
-          <Environment files={file} background={skyBackground} environmentIntensity={night ? 0.38 : 0.7} />
+          <Environment files={file} background={skyBackground} environmentIntensity={night ? 0.22 : 0.38} />
         </Suspense>
       ) : (
         <hemisphereLight
@@ -74,7 +74,7 @@ function KeyLight({ frame, night }: { frame: FieldFrame; night: boolean }) {
       <directionalLight
         ref={light}
         castShadow
-        intensity={night ? 1.25 : 1.9}
+        intensity={night ? 0.55 : 0.85}
         color={night ? "#d5e2ff" : "#fff2d8"}
       />
       <object3D ref={target} />

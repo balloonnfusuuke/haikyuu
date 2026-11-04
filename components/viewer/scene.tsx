@@ -13,6 +13,7 @@ import { Actors, ArrivalRing, LandingMark, StrikeZone, TrajectoryLine } from "./
 import { PitchBall } from "./ball";
 import { FieldLighting } from "./lighting";
 import { Stadium } from "./stadium";
+import { ToneMap } from "./tone";
 
 function CameraRig({
   preset,
@@ -76,6 +77,8 @@ export function FieldScene({
   showZone,
   showAxis,
   shiftRubber,
+  aoMapIntensity,
+  tone,
   dayHdri,
   nightHdri,
   report,
@@ -87,6 +90,8 @@ export function FieldScene({
   showZone: boolean;
   showAxis: boolean;
   shiftRubber: number;
+  aoMapIntensity: number;
+  tone: "agx" | "aces";
   dayHdri: boolean;
   nightHdri: boolean;
   report: StadiumReport | null;
@@ -94,7 +99,8 @@ export function FieldScene({
 }) {
   return (
     <>
-      <Stadium shiftRubber={shiftRubber} onReport={onReport} />
+      <ToneMap tone={tone} />
+      <Stadium shiftRubber={shiftRubber} aoMapIntensity={aoMapIntensity} onReport={onReport} />
       {report && (
         <>
           <FieldLighting frame={report.frame} night={night} dayHdri={dayHdri} nightHdri={nightHdri} />

@@ -46,11 +46,29 @@ function enableShadows(root: THREE.Object3D) {
   });
 }
 
+/** AO は glTF の 2 つ目の UV（Three.js の uv1、channel 1）に入っている。 */
+export function applyAo(root: THREE.Object3D, intensity: number): void {
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      const standard = material as THREE.MeshStandardMaterial;
+      if (!standard.aoMap) continue;
+      standard.aoMap.channel = 1;
+      standard.aoMapIntensity = intensity;
+      standard.needsUpdate = true;
+    }
+  });
+}
+
 export function Stadium({
   shiftRubber,
+  aoMapIntensity,
   onReport,
 }: {
   shiftRubber: number;
+  aoMapIntensity: number;
   onReport: (report: StadiumReport) => void;
 }) {
   const [root, setRoot] = useState<THREE.Object3D | null>(null);
@@ -127,8 +145,9 @@ export function Stadium({
     if (report.ok) console.info(`[plate-tip] ${report.message}`);
     else console.warn(`[plate-tip] ${report.message}`);
     if (report.note) console.info(`[plate-tip] ${report.note}`);
+    applyAo(root, aoMapIntensity);
     onReport(report);
-  }, [root, source, error, shiftRubber, onReport]);
+  }, [root, source, error, shiftRubber, aoMapIntensity, onReport]);
 
   if (!root) return null;
   return <primitive object={root} />;
