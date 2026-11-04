@@ -188,7 +188,14 @@ export function GamePanel({
   function playThrown(thrown: ThrownPitch) {
     if (!batter) return;
     const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
-    setGear({ bats: batter.bats, calledX, calledZ, outcome: thrown.decision.outcome });
+    setGear({
+      bats: batter.bats,
+      calledX,
+      calledZ,
+      outcome: thrown.decision.outcome,
+      bases,
+      advance: playKind(thrown.result.pa, thrown.decision.bip),
+    });
     onClip(clipFromPitch(thrown.pitch, contactFrom(thrown)));
   }
 
@@ -295,7 +302,7 @@ export function GamePanel({
   function replayClip() {
     const current = window.__plateClip;
     if (!current) return;
-    setSim({ t: current.tStart, playing: true, speed: replaySpeed, holdAtPlate: false });
+    setSim({ t: current.tLead ?? current.tStart, playing: true, speed: replaySpeed, holdAtPlate: false });
   }
 
   function toggleTrail() {

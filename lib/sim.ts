@@ -90,12 +90,14 @@ declare global {
       bat: string;
       mitt: string;
       vrm: string;
+      human: string;
     };
     __plateGear?: {
       getGear: () => import("@/lib/gear").Gear;
       setGear: (patch: Partial<import("@/lib/gear").Gear>) => void;
     };
-    __plateClip?: { tStart: number; tPlate: number | null; tEnd: number };
+    /** tLead は再生を始める時刻。投球は投手の足上げから始まるので tStart より前。 */
+    __plateClip?: { tStart: number; tPlate: number | null; tEnd: number; tLead: number };
   }
 }
 

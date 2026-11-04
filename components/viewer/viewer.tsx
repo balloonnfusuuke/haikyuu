@@ -7,6 +7,7 @@ import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/fie
 import { DEFAULT_CLIP_ID, getClip, type Clip } from "@/lib/clips";
 import { beginPlaySample, noteGpu, perf } from "@/lib/perf";
 import { getGear, setGear } from "@/lib/gear";
+import { leadIn } from "@/lib/mixamo";
 import { getSim, setSim } from "@/lib/sim";
 import { propSource } from "./ball";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ export default function Viewer() {
   const booted = useRef(false);
   if (!booted.current) {
     booted.current = true;
-    setSim({ t: getClip(DEFAULT_CLIP_ID).tStart, playing: false, clipId: DEFAULT_CLIP_ID });
+    setSim({ t: leadIn(getClip(DEFAULT_CLIP_ID)), playing: false, clipId: DEFAULT_CLIP_ID });
   }
 
   const onReport = useCallback((next: StadiumReport) => {
@@ -52,7 +53,7 @@ export default function Viewer() {
 
   function play(next: Clip) {
     setClip(next);
-    setSim({ t: next.tStart, playing: true, speed: 1, holdAtPlate: false, clipId: next.id });
+    setSim({ t: leadIn(next), playing: true, speed: 1, holdAtPlate: false, clipId: next.id });
   }
 
   const playRef = useRef(play);
@@ -71,7 +72,7 @@ export default function Viewer() {
   }, []);
 
   useEffect(() => {
-    window.__plateClip = { tStart: clip.tStart, tPlate: clip.tPlate, tEnd: clip.tEnd };
+    window.__plateClip = { tStart: clip.tStart, tPlate: clip.tPlate, tEnd: clip.tEnd, tLead: leadIn(clip) };
   }, [clip]);
 
   useEffect(() => {

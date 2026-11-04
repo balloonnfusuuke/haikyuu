@@ -165,6 +165,13 @@ export async function fetchExists(url: string): Promise<boolean> {
 }
 
 export async function loadGltf(url: string): Promise<THREE.Group | null> {
+  const asset = await loadGltfAsset(url);
+  return asset?.scene ?? null;
+}
+
+export async function loadGltfAsset(
+  url: string,
+): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] } | null> {
   const response = await fetch(url);
   if (!response.ok) return null;
   const buffer = await response.arrayBuffer();
@@ -182,7 +189,7 @@ export async function loadGltf(url: string): Promise<THREE.Group | null> {
         mesh.receiveShadow = true;
       }
     });
-    return gltf.scene;
+    return { scene: gltf.scene, animations: gltf.animations };
   } finally {
     draco.dispose();
   }

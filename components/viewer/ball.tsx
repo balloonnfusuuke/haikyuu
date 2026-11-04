@@ -19,6 +19,7 @@ import {
 import { seamAxis } from "@/lib/seam";
 import { ballWorld, getSim, setReadout, setSim } from "@/lib/sim";
 import { rpmToRadPerSec, spinAxisWorld } from "@/lib/spin";
+import { pitcherHold } from "./humans";
 import { createBaseball, fitBall, loadGltf, maxAnisotropy } from "./props";
 
 export const propSource = {
@@ -26,6 +27,7 @@ export const propSource = {
   bat: "procedural" as "loading" | "file" | "procedural",
   mitt: "procedural" as "loading" | "file" | "procedural",
   vrm: "procedural" as "loading" | "file" | "procedural",
+  human: "procedural" as "loading" | "file" | "procedural",
 };
 
 export function PitchBall({
@@ -119,6 +121,7 @@ export function PitchBall({
     const world = statcastToWorld(frame, sample.x, sample.y, sample.z);
     const group = ballRef.current;
     if (group) {
+      group.visible = !(current.kind === "pitch" && t < current.tStart - 1e-6 && pitcherHold.active);
       group.position.set(world.x, world.y, world.z);
       if (axis && current.spinRpm != null) {
         const seam = seamAxis(current.pitchType);

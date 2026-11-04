@@ -24,6 +24,7 @@ import {
   swingDirection,
 } from "@/lib/stance";
 import { propSource } from "./ball";
+import { HumanBatter, HumanPitcher, HumanRunners, loadHumanTemplate, type HumanTemplate } from "./humans";
 import { createBat, createMitt, loadGltf, localMarker, setMorph, setTreeOpacity, type MarkerFrame } from "./props";
 
 function toVector(point: Vec3): [number, number, number] {
@@ -243,6 +244,7 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
   const [mittModel, setMittModel] = useState<THREE.Object3D>(() => anchored(createMitt()));
   const [vrm, setVrm] = useState<THREE.Object3D | null>(null);
   const [catcherVrm, setCatcherVrm] = useState<THREE.Object3D | null>(null);
+  const [human, setHuman] = useState<HumanTemplate | null>(null);
   const batRig = useRef<THREE.Group>(null);
   const mittRig = useRef<THREE.Group>(null);
   const clipRef = useRef(clip);
@@ -255,7 +257,17 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
     let cancelled = false;
     propSource.bat = "procedural";
     propSource.mitt = "procedural";
+    propSource.human = "procedural";
     rememberProps();
+    if (filesAllowed()) {
+      propSource.human = "loading";
+      void loadHumanTemplate().then((template) => {
+        if (cancelled) return;
+        propSource.human = template ? "file" : "procedural";
+        rememberProps();
+        setHuman(template);
+      });
+    }
     (async () => {
       if (filesAllowed()) {
         const [bat, mitt] = await Promise.all([loadGltf("/models/bat.glb"), loadGltf("/models/mitt.glb")]);
@@ -344,7 +356,13 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
 
   return (
     <>
-      {vrm ? (
+      {human ? (
+        <>
+          <HumanPitcher template={human} clip={clip} frame={frame} />
+          <HumanBatter template={human} clip={clip} frame={frame} bat={batModel} grip={grip} />
+          <HumanRunners template={human} clip={clip} frame={frame} />
+        </>
+      ) : vrm ? (
         <BatterVrm vrm={vrm} frame={frame} face={face} />
       ) : (
         <Figure kind="batter" frame={frame} at={[feet.x, feet.y, feet.z]} />
@@ -354,7 +372,7 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
       ) : (
         <Figure kind="catcher" frame={frame} at={catcherAt} />
       )}
-      <group ref={batRig}>
+      <group ref={batRig} visible={!human}>
         <primitive object={batModel} />
       </group>
       <group ref={mittRig}>

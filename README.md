@@ -100,6 +100,7 @@ Blender 側の約束:
 | `public/models/ball.glb` | 中心が原点。半径が違えば公式球（約 3.7 cm）に合わせる。縫い目付きを想定 |
 | `public/models/bat.glb` | Draco。`Marker_GripBottom` と `Marker_GripTop` を手に合わせる。長さや軸はマーカーから取る |
 | `public/models/mitt.glb` | Draco。`Marker_Pocket` を到達位置に合わせ、開口はマーカーの +Z を投手へ向ける。捕球でモーフ `Close` |
+| `public/models/human_mixamo.glb` | Draco。`mixamorig` の骨と、クリップ `Pitch`・`MixamoPitch`・`MixamoBat`・`MixamoRun`。投手、打者、走者を 1 つずつ複製して置く。投手は `Pitch` のリリースを球の出る時刻に合わせ、打者は右手にバットを持たせて `MixamoBat`、走者は `MixamoRun` を足の進みに合わせて回す。読めないときは下の仮モデル |
 | `public/models/player.vrm` | 足元が原点、正面が +Z。打者と捕手の両方に置く。VRoid Studio で書き出した VRM を置ける。ファイルが無いあいだは人型の仮モデル。体はまだ振らず、バットだけが振れる |
 
 球の回転は `release_spin_rate`（rpm）と `spin_axis`（度）です。180° が真のバックスピン、0° が真のトップスピン、90° は捕手から見て右へ曲がります。モデルは +X まわりがフォーシーム、+Y まわりがツーシームに見えるので、`FF` などは +X、`SI` と `FT` は +Y を `spin_axis` に合わせてから回します。ジャイロはデータに無いので、報告された軸のまわりに回転数すべてで回します。

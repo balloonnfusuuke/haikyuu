@@ -1,3 +1,5 @@
+import { EMPTY_BASES, type AdvanceKind, type Bases } from "@/lib/bases";
+
 export type MittView = "down" | "clear" | "full";
 
 export type Gear = {
@@ -7,6 +9,10 @@ export type Gear = {
   /** ゲームの結果。null はまだ投球していない。 */
   outcome: string | null;
   mittView: MittView;
+  /** 投げる前の走者。 */
+  bases: Bases;
+  /** この球で打席が終わったときの進塁。 */
+  advance: AdvanceKind | null;
 };
 
 const CATCH_OUTCOMES = new Set(["ball", "called_strike", "swinging_strike"]);
@@ -17,6 +23,8 @@ let gear: Gear = {
   calledZ: null,
   outcome: null,
   mittView: "down",
+  bases: EMPTY_BASES,
+  advance: null,
 };
 
 const listeners = new Set<() => void>();
