@@ -64,6 +64,21 @@ export type PitchDecision = {
   swingLength: number | null;
   contactId: string | null;
   contactEvents: string | null;
+  mlbBip: string | null;
+  park: ParkCall | null;
+};
+
+export type ParkCall = {
+  bip: string;
+  how: string;
+  fielder: string | null;
+  cleared: boolean;
+  carryFt: number;
+  fenceFt: number;
+  heightFt: number | null;
+  landingFt: number;
+  note: string;
+  label: string;
 };
 
 export type PitchResult = {

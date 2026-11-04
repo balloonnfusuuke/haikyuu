@@ -1,5 +1,6 @@
 import { hcToFeet, integrateContact } from "@/lib/batted";
 import { buildPitchClip, PLATE_FRONT_FT, type Clip } from "@/lib/clips";
+import { resolveFairBall } from "@/lib/park";
 
 export type GamePitch = {
   id: string;
@@ -53,6 +54,8 @@ export type ContactFlight = {
   batSpeed?: number | null;
   swingLength?: number | null;
   noise?: "catch" | "hit" | null;
+  /** フェアのインプレーだけ、甲子園のフェンスと守備で結果を描く。 */
+  fair?: boolean;
 };
 
 function swingSeconds(batSpeedMph: number | null | undefined, swingLengthFt: number | null | undefined): number {
@@ -98,16 +101,32 @@ export function clipFromPitch(pitch: GamePitch, contact?: ContactFlight | null):
       ? hcToFeet(contact.hcX, contact.hcY)
       : null;
   if (!target) return withSwing;
-  const flight = integrateContact({
-    x: clip.modelPlateX,
-    y: PLATE_FRONT_FT,
-    z: clip.modelPlateZ,
-    speedMph: contact.exitSpeed,
-    launchDeg: contact.launchAngle,
-    targetX: target.x,
-    targetY: target.y,
-    ground: contact.bbType === "ground_ball",
-  });
+  const ground = contact.bbType === "ground_ball";
+  const hcDistance = Math.hypot(target.x, target.y);
+  const carry = ground || contact.hitDistance == null || contact.hitDistance <= 20 ? hcDistance : contact.hitDistance;
+  const flight = contact.fair
+    ? resolveFairBall({
+        x: clip.modelPlateX,
+        y: PLATE_FRONT_FT,
+        z: clip.modelPlateZ,
+        speedMph: contact.exitSpeed,
+        launchDeg: contact.launchAngle,
+        aimX: target.x,
+        aimY: target.y,
+        carryFt: carry,
+        ground,
+        bbType: contact.bbType,
+      })
+    : integrateContact({
+        x: clip.modelPlateX,
+        y: PLATE_FRONT_FT,
+        z: clip.modelPlateZ,
+        speedMph: contact.exitSpeed,
+        launchDeg: contact.launchAngle,
+        targetX: target.x,
+        targetY: target.y,
+        ground,
+      });
   const tPlate = clip.tPlate;
   const kept = clip.samples.filter((sample) => sample.t <= tPlate + 1e-4);
   const flown = flight.samples.filter((sample) => sample.t > 0.001).map((sample) => ({ ...sample, t: sample.t + tPlate }));

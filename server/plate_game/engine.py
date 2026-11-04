@@ -18,6 +18,7 @@ from plate_game.rates import (
     batter_whiff,
     pitch_group,
 )
+from plate_game.park import apply_park
 from plate_game.zone import cell_center, cell_for, cell_label, column_edges, is_strike_location, row_edges
 
 DEFAULT_REPEAT_ALPHA = 0.06
@@ -279,6 +280,13 @@ def outcome_label(outcome: str, bip: str | None, bb_type: str | None) -> str:
     return f"{contact}の{hit}" if contact else hit
 
 
+def _shown_label(decision: dict) -> str:
+    park = decision.get("park")
+    if park:
+        return park["label"]
+    return outcome_label(decision["outcome"], decision["bip"], decision["bbType"])
+
+
 def pa_label(pa: str | None, bip: str | None, bb_type: str | None) -> str | None:
     if pa == "walk":
         return "四球"
@@ -515,6 +523,7 @@ def throw_pitch(
         throws,
         league_bb,
     )
+    decision = apply_park(decision, chosen.plate_x, chosen.plate_z)
     balls_after, strikes_after, pa = advance_count(balls, strikes, decision["outcome"])
     actual_cell = cell_for(chosen.plate_x, chosen.plate_z, sz_bot, sz_top)
     return {
@@ -553,9 +562,9 @@ def throw_pitch(
         "decision": decision,
         "result": {
             "code": decision["outcome"],
-            "label": outcome_label(decision["outcome"], decision["bip"], decision["bbType"]),
+            "label": _shown_label(decision),
             "pa": pa,
-            "paLabel": pa_label(pa, decision["bip"], decision["bbType"]),
+            "paLabel": decision["park"]["label"] if decision.get("park") and pa == "in_play" else pa_label(pa, decision["bip"], decision["bbType"]),
             "balls": balls_after,
             "strikes": strikes_after,
             "over": pa is not None,

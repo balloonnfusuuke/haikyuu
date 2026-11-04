@@ -543,6 +543,7 @@ function contactFrom(thrown: ThrownPitch): ContactFlight {
     batSpeed: decision.batSpeed,
     swingLength: decision.swingLength,
     noise: hit ? "hit" : "catch",
+    fair: decision.outcome === "in_play",
   };
 }
 
@@ -746,6 +747,7 @@ function PitchReadout({ last, bats }: { last: ThrownPitch; bats: "R" | "L" }) {
           {decision.batSpeed != null && <Stat label="バット速度" value={mphPair(decision.batSpeed)} wide />}
         </dl>
       )}
+      {decision.park && <p className="mt-2 border-t border-white/15 pt-2 text-[12px] leading-snug text-white/80">{decision.park.note}</p>}
     </div>
   );
 }
