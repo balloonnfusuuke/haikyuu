@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { advanceRunners, basesLabel, EMPTY_BASES, playKind, type Bases } from "@/lib/bases";
 import { setGear, type MittView } from "@/lib/gear";
-import { clipFromPitch } from "@/lib/game-clip";
+import { clipFromPitch, type ContactFlight } from "@/lib/game-clip";
+import { getSim, setSim, setTrail } from "@/lib/sim";
 import { cellCenter } from "@/lib/zone-grid";
 import type { Clip } from "@/lib/clips";
 import {
@@ -96,6 +97,10 @@ export function GamePanel({
   const [holdout, setHoldout] = useState<Holdout | null>(null);
   const [holdoutError, setHoldoutError] = useState<string | null>(null);
   const [mittView, setMittView] = useState<MittView>("down");
+  const [pending, setPending] = useState<ThrownPitch | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState(1);
+  const [trail, setTrailOn] = useState(true);
+  const serial = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,10 +150,10 @@ export function GamePanel({
       matchup: name,
       balls,
       strikes,
-      banner: inningOver ? "イニング終了" : (over ?? last?.result.label ?? null),
+      banner: pending ? pending.result.label : inningOver ? "イニング終了" : (over ?? last?.result.label ?? null),
       inning,
     });
-  }, [pitcher, batter, balls, strikes, over, last, onSnapshot, mode, outs, bases, runs, pitchCount, inningOver]);
+  }, [pitcher, batter, balls, strikes, over, last, pending, onSnapshot, mode, outs, bases, runs, pitchCount, inningOver]);
 
   function clearPlate() {
     setBalls(0);
@@ -157,6 +162,7 @@ export function GamePanel({
     setLog([]);
     setOver(null);
     setLast(null);
+    setPending(null);
   }
 
   function clearInning() {
@@ -176,12 +182,20 @@ export function GamePanel({
     setGear({ mittView: value });
   }
 
+  function playThrown(thrown: ThrownPitch) {
+    if (!batter) return;
+    const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
+    setGear({ bats: batter.bats, calledX, calledZ, outcome: thrown.decision.outcome });
+    onClip(clipFromPitch(thrown.pitch, contactFrom(thrown)));
+  }
+
   async function throwPitch() {
-    if (!pitcher || !batter || !pitchType || inningOver) return;
+    if (!pitcher || !batter || !pitchType || inningOver || pending) return;
     if (mode === "pa" && over) return;
     setBusy(true);
     setError(null);
-    const pitchIndex = mode === "inning" ? pitchCount : history.length;
+    const pitchIndex = serial.current;
+    serial.current += 1;
     try {
       const thrown = await throwToApi({
         pitcherId: pitcher.id,
@@ -195,72 +209,96 @@ export function GamePanel({
         pitchIndex,
         repeatAlpha: alpha,
       });
-      const contact =
-        thrown.decision.exitSpeed == null
-          ? null
-          : {
-              exitSpeed: thrown.decision.exitSpeed,
-              launchAngle: thrown.decision.launchAngle ?? 0,
-              spray: thrown.decision.spray ?? 0,
-            };
-      const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
-      setGear({ bats: batter.bats, calledX, calledZ, outcome: thrown.decision.outcome });
-      onClip(clipFromPitch(thrown.pitch, contact));
-      const row = rowFrom(log.length + 1, thrown);
-      const nextLog = [...log, row];
-      setLast(thrown);
-      setHistory((items) => [...items, thrown.historyItem]);
-      setLog(nextLog);
-      if (mode === "inning") setPitchCount((count) => count + 1);
-
-      if (!thrown.result.over) {
-        setBalls(thrown.result.balls);
-        setStrikes(thrown.result.strikes);
-        return;
-      }
-
-      if (mode === "pa") {
-        setBalls(thrown.result.balls);
-        setStrikes(thrown.result.strikes);
-        setOver(thrown.result.paLabel);
-        return;
-      }
-
-      const kind = playKind(thrown.result.pa, thrown.decision.bip);
-      const step = advanceRunners(bases, kind ?? "out");
-      const nextOuts = outs + (step.out ? 1 : 0);
-      setRuns((total) => total + step.runs);
-      setBases(step.bases);
-      setOuts(nextOuts);
-      setPlates((items) => [
-        ...items,
-        {
-          spot: spot + 1,
-          batter: batter.name,
-          result: plateResult(thrown.result.paLabel, step.runs),
-          runs: step.runs,
-          out: step.out,
-          pitches: nextLog,
-        },
-      ]);
-      if (nextOuts >= 3) {
-        setBalls(thrown.result.balls);
-        setStrikes(thrown.result.strikes);
-        setOver(thrown.result.paLabel);
-        setInningOver(true);
-        return;
-      }
-      setSpot((index) => (index + 1) % Math.max(lineup.length, 1));
-      setBalls(0);
-      setStrikes(0);
-      setHistory([]);
-      setLog([]);
-      setOver(null);
+      setPending(thrown);
+      playThrown(thrown);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "投球に失敗しました");
     } finally {
       setBusy(false);
     }
+  }
+
+  function commitPending() {
+    if (!pending || !batter) return;
+    const thrown = pending;
+    setPending(null);
+    setLast(thrown);
+    const row = rowFrom(log.length + 1, thrown);
+    const nextLog = [...log, row];
+    setHistory((items) => [...items, thrown.historyItem]);
+    setLog(nextLog);
+    if (mode === "inning") setPitchCount((count) => count + 1);
+
+    if (!thrown.result.over) {
+      setBalls(thrown.result.balls);
+      setStrikes(thrown.result.strikes);
+      return;
+    }
+
+    if (mode === "pa") {
+      setBalls(thrown.result.balls);
+      setStrikes(thrown.result.strikes);
+      setOver(thrown.result.paLabel);
+      return;
+    }
+
+    const kind = playKind(thrown.result.pa, thrown.decision.bip);
+    const step = advanceRunners(bases, kind ?? "out");
+    const nextOuts = outs + (step.out ? 1 : 0);
+    setRuns((total) => total + step.runs);
+    setBases(step.bases);
+    setOuts(nextOuts);
+    setPlates((items) => [
+      ...items,
+      {
+        spot: spot + 1,
+        batter: batter.name,
+        result: plateResult(thrown.result.paLabel, step.runs),
+        runs: step.runs,
+        out: step.out,
+        pitches: nextLog,
+      },
+    ]);
+    if (nextOuts >= 3) {
+      setBalls(thrown.result.balls);
+      setStrikes(thrown.result.strikes);
+      setOver(thrown.result.paLabel);
+      setInningOver(true);
+      return;
+    }
+    setSpot((index) => (index + 1) % Math.max(lineup.length, 1));
+    setBalls(0);
+    setStrikes(0);
+    setHistory([]);
+    setLog([]);
+    setOver(null);
+  }
+
+  function setSpeed(speed: number) {
+    setReplaySpeed(speed);
+    setSim({ speed, holdAtPlate: false });
+  }
+
+  function togglePlay() {
+    setSim({ playing: !getSim().playing, holdAtPlate: false });
+  }
+
+  function stepFrame() {
+    const current = window.__plateClip;
+    if (!current) return;
+    setSim({ t: Math.min(current.tEnd, getSim().t + 1 / 60), playing: false, holdAtPlate: false });
+  }
+
+  function replayClip() {
+    const current = window.__plateClip;
+    if (!current) return;
+    setSim({ t: current.tStart, playing: true, speed: replaySpeed, holdAtPlate: false });
+  }
+
+  function toggleTrail() {
+    const next = !trail;
+    setTrailOn(next);
+    setTrail(next);
   }
 
   const report = holdout?.batters.find((item) => item.batterId === batter?.id) ?? null;
@@ -394,14 +432,44 @@ export function GamePanel({
               <ZoneGrid roster={roster} columns={columns} cells={cells} cell={cell} onPick={setCell} />
               <SeedAlpha seed={seed} alpha={alpha} onSeed={setSeed} onAlpha={setAlpha} />
               <div className="flex gap-2">
-                <Button type="button" disabled={busy || !pitchType || (mode === "pa" && Boolean(over))} onClick={() => void throwPitch()}>
+                <Button
+                  type="button"
+                  disabled={busy || pending != null || !pitchType || (mode === "pa" && Boolean(over)) || inningOver}
+                  onClick={() => void throwPitch()}
+                >
                   {busy ? "選球中" : "投げる"}
+                </Button>
+                <Button type="button" disabled={pending == null} onClick={commitPending}>
+                  次の球
                 </Button>
                 <Button type="button" variant="secondary" onClick={() => (mode === "inning" ? clearInning() : clearPlate())}>
                   {mode === "inning" ? "イニングをやり直す" : "次の打席"}
                 </Button>
               </div>
-              {last && <LastPitch last={last} />}
+              <div className="flex flex-wrap gap-1.5">
+                <Button type="button" size="sm" variant={replaySpeed === 1 ? "secondary" : "outline"} onClick={() => setSpeed(1)}>
+                  等速
+                </Button>
+                <Button type="button" size="sm" variant={replaySpeed === 0.25 ? "secondary" : "outline"} onClick={() => setSpeed(0.25)}>
+                  1/4
+                </Button>
+                <Button type="button" size="sm" variant={replaySpeed === 0.1 ? "secondary" : "outline"} onClick={() => setSpeed(0.1)}>
+                  1/10
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={togglePlay}>
+                  再生
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={stepFrame}>
+                  コマ送り
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={replayClip}>
+                  もう一度
+                </Button>
+                <Button type="button" size="sm" variant={trail ? "secondary" : "outline"} onClick={toggleTrail}>
+                  軌跡
+                </Button>
+              </div>
+              {(pending ?? last) && <LastPitch last={(pending ?? last) as ThrownPitch} />}
               <PitchLog log={log} />
             </>
           )}
@@ -436,6 +504,25 @@ export function GamePanel({
       )}
     </aside>
   );
+}
+
+function contactFrom(thrown: ThrownPitch): ContactFlight {
+  const decision = thrown.decision;
+  const hit = decision.outcome === "foul" || decision.outcome === "in_play";
+  return {
+    exitSpeed: decision.exitSpeed ?? 0,
+    launchAngle: decision.launchAngle ?? 0,
+    spray: decision.spray ?? 0,
+    hcX: decision.hcX,
+    hcY: decision.hcY,
+    hitDistance: decision.hitDistance,
+    bbType: decision.bbType,
+    miss: decision.whiff,
+    swing: decision.swing,
+    batSpeed: decision.batSpeed,
+    swingLength: decision.swingLength,
+    noise: hit ? "hit" : "catch",
+  };
 }
 
 function rowFrom(index: number, thrown: ThrownPitch): LogRow {
@@ -584,18 +671,28 @@ function SeedAlpha({
 }
 
 function LastPitch({ last }: { last: ThrownPitch }) {
-  const contact =
-    last.decision.exitSpeed == null
-      ? ""
-      : ` 打球 ${last.decision.exitSpeed.toFixed(1)} mph、角度 ${last.decision.launchAngle?.toFixed(0) ?? "—"}°。`;
+  const decision = last.decision;
+  const speed =
+    decision.exitSpeed == null
+      ? null
+      : `${decision.exitSpeed.toFixed(1)} mph（${(decision.exitSpeed * 1.609344).toFixed(1)} km/h）`;
+  const distance = decision.hitDistance == null ? null : `${Math.round(decision.hitDistance)} ft`;
   return (
     <div className="rounded-md bg-[#1b221c] px-3 py-2 text-sm">
       <p className="font-medium">{last.result.paLabel ?? last.result.label}</p>
+      {speed && (
+        <p className="mt-1 font-mono text-xs text-[#f4f1ea]">
+          打球速度 {speed}
+          {decision.launchAngle != null ? ` · 角度 ${decision.launchAngle.toFixed(1)}°` : ""}
+          {distance ? ` · 飛距離 ${distance}` : ""}
+        </p>
+      )}
       <p className="mt-1 text-xs leading-relaxed text-[#c5cdc4]">
         狙い {last.call.label}、実際 {last.call.actualLabel}
-        {last.call.inZone ? "（ゾーン内）" : "（ゾーン外）"}。スイング {percent(last.decision.pSwing)}
-        、空振り {percent(last.decision.pWhiff)}。{contact}
-        {last.decision.repeatStreak > 0 ? ` 同じ球が ${last.decision.repeatStreak} 球続いています。` : ""}
+        {last.call.inZone ? "（ゾーン内）" : "（ゾーン外）"}。スイング {percent(decision.pSwing)}
+        、空振り {percent(decision.pWhiff)}。
+        {decision.repeatStreak > 0 ? ` 同じ球が ${decision.repeatStreak} 球続いています。` : ""}
+        結果を見てから「次の球」で進みます。
       </p>
     </div>
   );

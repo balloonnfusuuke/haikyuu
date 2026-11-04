@@ -57,6 +57,13 @@ export type PitchDecision = {
   exitSpeed: number | null;
   launchAngle: number | null;
   spray: number | null;
+  hcX: number | null;
+  hcY: number | null;
+  hitDistance: number | null;
+  batSpeed: number | null;
+  swingLength: number | null;
+  contactId: string | null;
+  contactEvents: string | null;
 };
 
 export type PitchResult = {

@@ -18,13 +18,15 @@ import {
   type Vec3,
 } from "./coords";
 
-export type CameraPreset = "catcher" | "rhh" | "lhh" | "side1b" | "side3b" | "ball";
+export type CameraPreset = "catcher" | "broadcast" | "rhh" | "lhh" | "side1b" | "side3b" | "ball" | "chase";
 
 export const CAMERA_PRESETS: { id: CameraPreset; label: string }[] = [
   { id: "catcher", label: "捕手" },
+  { id: "broadcast", label: "中継" },
+  { id: "side1b", label: "一塁側" },
+  { id: "chase", label: "打球" },
   { id: "rhh", label: "右打者" },
   { id: "lhh", label: "左打者" },
-  { id: "side1b", label: "一塁側" },
   { id: "side3b", label: "三塁側" },
   { id: "ball", label: "ボール" },
 ];
@@ -36,7 +38,7 @@ export type CameraPose = { position: Vec3; target: Vec3 };
  * 右打者は捕手から見て左（三塁側）の打者席に立つ。
  */
 export function cameraPose(
-  preset: Exclude<CameraPreset, "ball">,
+  preset: Exclude<CameraPreset, "ball" | "chase">,
   frame: FieldFrame,
   catcherCam: Vec3 | null,
 ): CameraPose {
@@ -62,6 +64,12 @@ export function cameraPose(
       target: statcastToWorld(frame, 0, 50, 5.4),
     };
   }
+  if (preset === "broadcast") {
+    return {
+      position: statcastToWorld(frame, 1.2, 68, 7),
+      target: zone,
+    };
+  }
   if (preset === "side1b") {
     return {
       position: statcastToWorld(frame, 16, 10, 5.6),
@@ -71,6 +79,21 @@ export function cameraPose(
   return {
     position: statcastToWorld(frame, -16, 10, 5.6),
     target: zone,
+  };
+}
+
+/** 打球の後ろ、一塁側の上から追う。位置は毎フレーム更新する。 */
+export function chaseCamera(frame: FieldFrame, ball: Vec3): CameraPose {
+  const back = 5;
+  const up = 2;
+  const side = 2.4;
+  return {
+    position: {
+      x: ball.x - frame.forward.x * back + frame.up.x * up + frame.right.x * side,
+      y: ball.y - frame.forward.y * back + frame.up.y * up + frame.right.y * side,
+      z: ball.z - frame.forward.z * back + frame.up.z * up + frame.right.z * side,
+    },
+    target: ball,
   };
 }
 

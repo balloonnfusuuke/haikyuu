@@ -120,6 +120,7 @@ def pitch(body: PitchRequest) -> dict:
             body.seed,
             body.pitchIndex,
             body.repeatAlpha,
+            [pitch for other in book.batters.values() for pitch in other.pitches],
         )
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
@@ -133,6 +134,7 @@ def holdout(seed: int = HOLDOUT_SEED, n: int = HOLDOUT_PA, repeatAlpha: float = 
     book = catalog()
     key = (seed, n, round(repeatAlpha, 4))
     if key not in HOLDOUT:
+        league_contact = [pitch for other in book.batters.values() for pitch in other.pitches]
         batters = [
             compare_batter(
                 batter.name,
@@ -148,6 +150,7 @@ def holdout(seed: int = HOLDOUT_SEED, n: int = HOLDOUT_PA, repeatAlpha: float = 
                 n,
                 seed,
                 repeatAlpha,
+                league_contact,
             )
             for batter in book.batters.values()
         ]

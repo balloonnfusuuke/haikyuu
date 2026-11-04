@@ -9,7 +9,7 @@ import { statcastDirToWorld, statcastToWorld, type FieldFrame, type Vec3 } from 
 import type { Clip } from "@/lib/clips";
 import { sampleAt } from "@/lib/clips";
 import { getGear, mittCatches, subscribeGear } from "@/lib/gear";
-import { getSim } from "@/lib/sim";
+import { getSim, trailEnabled } from "@/lib/sim";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
 import {
   batterFeet,
@@ -19,6 +19,7 @@ import {
   handBottom,
   MITT_SETUP_Y_FT,
   mittPlace,
+  swingDirection,
 } from "@/lib/stance";
 import { propSource } from "./ball";
 import { createBat, createMitt, loadGltf, localMarker, setMorph, setTreeOpacity, type MarkerFrame } from "./props";
@@ -27,11 +28,57 @@ function toVector(point: Vec3): [number, number, number] {
   return [point.x, point.y, point.z];
 }
 
-export function TrajectoryLine({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
-  const points = useMemo(() => {
-    return clip.samples.map((sample) => toVector(statcastToWorld(frame, sample.x, sample.y, sample.z)));
-  }, [clip, frame]);
-  return <Line points={points} color={clip.color} lineWidth={2} transparent opacity={0.9} />;
+const TRAIL_S = 0.45;
+
+/** 今の位置から TRAIL_S 秒だけ後ろへ、球種の色の点を置く。未来の軌道は描かない。 */
+export function BallTrail({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
+  const mesh = useMemo(() => {
+    const geometry = new THREE.SphereGeometry(0.09, 10, 8);
+    const material = new THREE.MeshBasicMaterial({ color: clip.color });
+    const object = new THREE.InstancedMesh(geometry, material, 64);
+    object.count = 0;
+    object.frustumCulled = false;
+    return object;
+  }, [clip.color]);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const clipRef = useRef(clip);
+  const frameRef = useRef(frame);
+  clipRef.current = clip;
+  frameRef.current = frame;
+
+  useEffect(() => {
+    return () => {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    };
+  }, [mesh]);
+
+  useFrame(() => {
+    const current = clipRef.current;
+    const field = frameRef.current;
+    if (!trailEnabled()) {
+      mesh.count = 0;
+      return;
+    }
+    const t = getSim().t;
+    let count = 0;
+    let index = 0;
+    for (const sample of current.samples) {
+      if (sample.t < t - TRAIL_S) continue;
+      if (sample.t > t + 1e-4) break;
+      if (index++ % 5 !== 0) continue;
+      const world = statcastToWorld(field, sample.x, sample.y, sample.z + 0.06);
+      dummy.position.set(world.x, world.y, world.z);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(count, dummy.matrix);
+      count += 1;
+      if (count >= 64) break;
+    }
+    mesh.count = count;
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+
+  return <primitive object={mesh} />;
 }
 
 export function StrikeZone({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
@@ -214,7 +261,7 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
     const field = frameRef.current;
     const gear = getGear();
     const t = getSim().t;
-    poseBat(batRig.current, grip, field, gear.bats);
+    poseBat(batRig.current, grip, field, gear.bats, current, t);
     poseMitt(mittRig.current, mittModel, pocket, field, current, gear, t);
   });
 
@@ -271,10 +318,22 @@ function poseBat(
   grip: { bottom: MarkerFrame; top: MarkerFrame } | null,
   frame: FieldFrame,
   bats: "R" | "L",
+  clip: Clip,
+  t: number,
 ): void {
   if (!rig || !grip) return;
   const hand = handBottom(bats);
-  const dir = gripDirection(bats);
+  const arrival = clip.tPlate == null ? null : sampleAt(clip.samples, clip.tPlate);
+  const dir = clip.swing
+    ? swingDirection({
+        bats,
+        t,
+        tPlate: clip.tPlate,
+        duration: clip.swing.duration,
+        miss: clip.swing.miss,
+        ball: arrival,
+      })
+    : gripDirection(bats);
   const bottom = statcastToWorld(frame, hand.x, hand.y, hand.z);
   const pose = alignPointDirection(
     grip.bottom.point,

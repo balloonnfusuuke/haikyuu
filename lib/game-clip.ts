@@ -1,4 +1,4 @@
-import { integrateBattedBall } from "@/lib/batted";
+import { hcToFeet, integrateContact } from "@/lib/batted";
 import { buildPitchClip, PLATE_FRONT_FT, type Clip } from "@/lib/clips";
 
 export type GamePitch = {
@@ -38,7 +38,28 @@ const COLOR: Record<string, string> = {
   FS: "#6fbf9a",
 };
 
-export type ContactFlight = { exitSpeed: number; launchAngle: number; spray: number };
+export type ContactFlight = {
+  exitSpeed: number;
+  launchAngle: number;
+  spray: number;
+  hcX?: number | null;
+  hcY?: number | null;
+  hitDistance?: number | null;
+  bbType?: string | null;
+  /** 空振りは球の下を通す。ファウルとインプレーは球へ向ける。 */
+  miss?: boolean;
+  /** 見逃しは false。空振り・ファウル・インプレーは true。 */
+  swing?: boolean;
+  batSpeed?: number | null;
+  swingLength?: number | null;
+  noise?: "catch" | "hit" | null;
+};
+
+function swingSeconds(batSpeedMph: number | null | undefined, swingLengthFt: number | null | undefined): number {
+  if (batSpeedMph == null || swingLengthFt == null || batSpeedMph < 10 || swingLengthFt <= 0) return 0.22;
+  const feetPerSecond = batSpeedMph * (5280 / 3600);
+  return Math.min(0.55, Math.max(0.08, swingLengthFt / feetPerSecond));
+}
 
 export function clipFromPitch(pitch: GamePitch, contact?: ContactFlight | null): Clip {
   const clip = buildPitchClip({
@@ -66,21 +87,33 @@ export function clipFromPitch(pitch: GamePitch, contact?: ContactFlight | null):
     szTop: pitch.szTop,
     szBot: pitch.szBot,
   });
-  if (!contact || clip.tPlate == null || clip.modelPlateX == null || clip.modelPlateZ == null) return clip;
-  const flight = integrateBattedBall({
+  const swing =
+    contact == null || contact.swing === false
+      ? null
+      : { duration: swingSeconds(contact.batSpeed, contact.swingLength), miss: Boolean(contact.miss) };
+  const withSwing = { ...clip, swing, noise: contact?.noise ?? null };
+  if (!contact || clip.tPlate == null || clip.modelPlateX == null || clip.modelPlateZ == null) return withSwing;
+  const target =
+    contact.hcX != null && contact.hcY != null
+      ? hcToFeet(contact.hcX, contact.hcY)
+      : null;
+  if (!target) return withSwing;
+  const flight = integrateContact({
     x: clip.modelPlateX,
     y: PLATE_FRONT_FT,
     z: clip.modelPlateZ,
     speedMph: contact.exitSpeed,
     launchDeg: contact.launchAngle,
-    sprayDeg: contact.spray,
+    targetX: target.x,
+    targetY: target.y,
+    ground: contact.bbType === "ground_ball",
   });
   const tPlate = clip.tPlate;
   const kept = clip.samples.filter((sample) => sample.t <= tPlate + 1e-4);
   const flown = flight.samples.filter((sample) => sample.t > 0.001).map((sample) => ({ ...sample, t: sample.t + tPlate }));
   const end = flown[flown.length - 1];
   return {
-    ...clip,
+    ...withSwing,
     samples: end ? [...kept, ...flown] : kept,
     tEnd: end ? end.t : tPlate,
     landing: { x: flight.landing.x, y: flight.landing.y, t: flight.landing.t + tPlate },

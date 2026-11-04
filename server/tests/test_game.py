@@ -8,6 +8,7 @@ from plate_game.engine import (
     adjust_for_repeat,
     choose_pitch,
     pick_contact,
+    select_contact,
     spray_degrees,
     throw_pitch,
 )
@@ -150,6 +151,57 @@ class Contact(unittest.TestCase):
         self.assertEqual(angle, 11.0)
         self.assertEqual(spray, -8.0)
 
+    def test_small_cell_does_not_lock_one_batted_ball(self):
+        local = BatterPitch(
+            "FF",
+            0.05,
+            2.5,
+            3.5,
+            1.5,
+            0,
+            0,
+            "hit_into_play",
+            "field_out",
+            "ground_ball",
+            "FF",
+            12,
+            launch_speed=82.0,
+            launch_angle=-8.0,
+            hc_x=140.0,
+            hc_y=170.0,
+            pitch_id="local-gb",
+            p_throws="R",
+        )
+        league = [
+            BatterPitch(
+                "FF",
+                0.2,
+                2.2,
+                3.5,
+                1.5,
+                0,
+                0,
+                "hit_into_play",
+                "home_run",
+                "fly_ball",
+                "FF",
+                12,
+                launch_speed=108.0,
+                launch_angle=28.0,
+                hc_x=80.0 + index,
+                hc_y=70.0,
+                pitch_id=f"hr-{index}",
+                p_throws="R",
+            )
+            for index in range(24)
+        ]
+        picked = {
+            select_contact([local], league, "FF", "R", 0.05, 2.5, 1.5, 3.5, random.Random(index)).pitch_id
+            for index in range(40)
+        }
+        self.assertIn("local-gb", picked)
+        self.assertGreater(len(picked), 1)
+
     def test_games_split_into_earlier_and_later(self):
         def pitch_on(day: str) -> BatterPitch:
             return BatterPitch("FF", 0, 2, 3.5, 1.5, 0, 0, "ball", None, None, "FF", 12, game_date=day)
@@ -209,6 +261,8 @@ class Selection(unittest.TestCase):
             repeat_alpha=0.06,
         )
         self.assertEqual(throw_pitch(**kwargs), throw_pitch(**kwargs))
+        plates = {throw_pitch(**{**kwargs, "pitch_index": index})["pitch"]["plateX"] for index in range(12)}
+        self.assertGreater(len(plates), 1)
 
 
 if __name__ == "__main__":

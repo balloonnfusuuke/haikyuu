@@ -33,6 +33,9 @@ export type Clip = {
   szTop: number;
   szBot: number;
   landing: { x: number; y: number; t: number } | null;
+  /** バットを振る時間。見逃しは null。 */
+  swing?: { duration: number; miss: boolean } | null;
+  noise?: "catch" | "hit" | null;
 };
 
 export type PitchDef = PitchKinematics & {

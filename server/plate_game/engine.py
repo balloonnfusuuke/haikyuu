@@ -1,4 +1,4 @@
-"""配球を実在の1球から選び、AI 打者の結果を決める。同じ種なら同じ結果になる。"""
+"""配球を実在の1球から選び、AI 打者の結果を決める。種と球番号が同じなら同じ結果になる。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 from plate_game.rates import (
     BIP_KEYS,
+    FOUL,
+    IN_PLAY,
     Bucket,
     Table,
     batter_bip,
@@ -16,11 +18,13 @@ from plate_game.rates import (
     batter_whiff,
     pitch_group,
 )
-from plate_game.zone import cell_center, cell_for, cell_label, is_strike_location
+from plate_game.zone import cell_center, cell_for, cell_label, column_edges, is_strike_location, row_edges
 
 DEFAULT_REPEAT_ALPHA = 0.06
 # マスの中心から半マスほどずれても、まだ十分に選ばれる。
 LOCATION_SIGMA_FT = 0.48
+# この球数より少ない候補は、次の広い池へ強く寄せる。
+CONTACT_PRIOR = 10
 
 PITCH_NAMES = {
     "FF": "フォーシーム",
@@ -97,6 +101,13 @@ class BatterPitch:
     launch_speed: float | None = None
     launch_angle: float | None = None
     spray: float | None = None
+    pitch_id: str = ""
+    p_throws: str | None = None
+    hc_x: float | None = None
+    hc_y: float | None = None
+    hit_distance: float | None = None
+    bat_speed: float | None = None
+    swing_length: float | None = None
 
 
 def pitch_name(code: str) -> str:
@@ -148,6 +159,75 @@ def adjust_for_repeat(p_swing: float, p_whiff: float, bip: dict[str, float], str
         boosted[key] *= lift
     total = sum(boosted.values())
     return swing, whiff, {key: value / total for key, value in boosted.items()}
+
+
+def half_cell(sz_bot: float, sz_top: float) -> tuple[float, float]:
+    xs = column_edges()
+    zs = row_edges(sz_bot, sz_top)
+    return (xs[1] - xs[0]) / 2, (zs[1] - zs[0]) / 2
+
+
+def _playable(pitch: BatterPitch, descriptions: set[str]) -> bool:
+    return (
+        pitch.description in descriptions
+        and pitch.launch_speed is not None
+        and pitch.launch_angle is not None
+        and pitch.hc_x is not None
+        and pitch.hc_y is not None
+    )
+
+
+def _shrink_pick(rng: random.Random, layers: list[list[BatterPitch]]) -> BatterPitch | None:
+    """候補が少ない層は飛ばして、次の広い層を使う。"""
+    usable = [layer for layer in layers if layer]
+    if not usable:
+        return None
+    for index, layer in enumerate(usable):
+        if index == len(usable) - 1 or rng.random() < len(layer) / (len(layer) + CONTACT_PRIOR):
+            return rng.choice(layer)
+    return rng.choice(usable[-1])
+
+
+def select_contact(
+    batter_pool: list[BatterPitch],
+    league_pool: list[BatterPitch],
+    pitch_type: str,
+    throws: str | None,
+    plate_x: float,
+    plate_z: float,
+    sz_bot: float,
+    sz_top: float,
+    rng: random.Random,
+    *,
+    descriptions: set[str] | None = None,
+) -> BatterPitch | None:
+    """打者・球種・半マス以内の実球から1つ。少なければ同じ利き手、それから全体へ広げる。"""
+    wanted = descriptions if descriptions is not None else IN_PLAY
+    half_x, half_z = half_cell(sz_bot, sz_top)
+
+    def ready(pool: list[BatterPitch]) -> list[BatterPitch]:
+        return [pitch for pitch in pool if _playable(pitch, wanted)]
+
+    local = [
+        pitch
+        for pitch in ready(batter_pool)
+        if pitch.pitch_type == pitch_type and abs(pitch.plate_x - plate_x) <= half_x and abs(pitch.plate_z - plate_z) <= half_z
+    ]
+    handed = [
+        pitch
+        for pitch in ready(batter_pool)
+        if pitch.pitch_type == pitch_type and (throws is None or pitch.p_throws in {None, throws})
+    ]
+    typed = [pitch for pitch in ready(league_pool) if pitch.pitch_type == pitch_type]
+    anyone = ready(league_pool)
+    return _shrink_pick(rng, [local, handed, typed or anyone])
+
+
+def _mean(pool: list[BatterPitch], name: str) -> float | None:
+    values = [getattr(pitch, name) for pitch in pool if getattr(pitch, name) is not None]
+    if not values:
+        return None
+    return float(sum(values) / len(values))
 
 
 def sample_bip(bip: dict[str, float], rng: random.Random) -> str:
@@ -211,6 +291,39 @@ def pa_label(pa: str | None, bip: str | None, bb_type: str | None) -> str | None
     return None
 
 
+def _contact_fields(pitch: BatterPitch | None, pool: list[BatterPitch]) -> dict:
+    bat_speed = pitch.bat_speed if pitch and pitch.bat_speed is not None else _mean(pool, "bat_speed")
+    swing_length = pitch.swing_length if pitch and pitch.swing_length is not None else _mean(pool, "swing_length")
+    if pitch is None:
+        return {
+            "bbType": None,
+            "exitSpeed": None,
+            "launchAngle": None,
+            "spray": None,
+            "hcX": None,
+            "hcY": None,
+            "hitDistance": None,
+            "batSpeed": None if bat_speed is None else round(bat_speed, 1),
+            "swingLength": None if swing_length is None else round(swing_length, 2),
+            "contactId": None,
+            "contactEvents": None,
+        }
+    spray = pitch.spray if pitch.spray is not None else spray_degrees(pitch.hc_x, pitch.hc_y)
+    return {
+        "bbType": pitch.bb_type,
+        "exitSpeed": None if pitch.launch_speed is None else round(pitch.launch_speed, 1),
+        "launchAngle": None if pitch.launch_angle is None else round(pitch.launch_angle, 1),
+        "spray": None if spray is None else round(spray, 1),
+        "hcX": pitch.hc_x,
+        "hcY": pitch.hc_y,
+        "hitDistance": pitch.hit_distance,
+        "batSpeed": None if bat_speed is None else round(bat_speed, 1),
+        "swingLength": None if swing_length is None else round(swing_length, 2),
+        "contactId": pitch.pitch_id or None,
+        "contactEvents": pitch.events,
+    }
+
+
 def decide(
     batter: Table,
     league: Table,
@@ -226,6 +339,9 @@ def decide(
     rng: random.Random,
     repeat_alpha: float,
     bb_pool: list[BatterPitch],
+    pitch_type: str | None = None,
+    throws: str | None = None,
+    league_bb: list[BatterPitch] | None = None,
 ) -> dict:
     count = f"{balls}-{strikes}"
     p_swing, swing_n = batter_swing(batter, league, group, cell, count)
@@ -239,22 +355,38 @@ def decide(
     swung_whiff = False
     foul = False
     bip_key = None
-    bb_type = None
-    exit_speed = None
-    launch_angle = None
-    spray = None
+    contact = _contact_fields(None, bb_pool)
+    kind = pitch_type or group
+    wider = league_bb if league_bb is not None else bb_pool
     if not swing:
         outcome = "called_strike" if is_strike_location(plate_x, plate_z, sz_bot, sz_top) else "ball"
     elif rng.random() < p_whiff:
         outcome = "swinging_strike"
         swung_whiff = True
+        contact = _contact_fields(None, bb_pool)
     elif rng.random() < p_foul:
         outcome = "foul"
         foul = True
+        foul_ball = select_contact(
+            bb_pool, wider, kind, throws, plate_x, plate_z, sz_bot, sz_top, rng, descriptions=FOUL
+        )
+        contact = _contact_fields(foul_ball, bb_pool)
     else:
         outcome = "in_play"
-        bip_key = sample_bip(bip, rng)
-        bb_type, exit_speed, launch_angle, spray = pick_contact(bb_pool, bip_key, rng)
+        chosen = select_contact(bb_pool, wider, kind, throws, plate_x, plate_z, sz_bot, sz_top, rng)
+        if chosen is not None:
+            bip_key = _event_key(chosen.events) or "out"
+            contact = _contact_fields(chosen, bb_pool)
+        else:
+            bip_key = sample_bip(bip, rng)
+            bb_type, exit_speed, launch_angle, spray = pick_contact(bb_pool, bip_key, rng)
+            contact = {
+                **_contact_fields(None, bb_pool),
+                "bbType": bb_type,
+                "exitSpeed": exit_speed,
+                "launchAngle": launch_angle,
+                "spray": spray,
+            }
 
     return {
         "swing": swing,
@@ -262,7 +394,7 @@ def decide(
         "foul": foul,
         "outcome": outcome,
         "bip": bip_key,
-        "bbType": bb_type,
+        "bbType": contact["bbType"],
         "pSwing": round(p_swing, 4),
         "pWhiff": round(p_whiff, 4),
         "pFoul": round(p_foul, 4),
@@ -270,9 +402,16 @@ def decide(
         "whiffSamples": whiff_n,
         "foulSamples": foul_n,
         "repeatStreak": streak,
-        "exitSpeed": exit_speed,
-        "launchAngle": launch_angle,
-        "spray": spray,
+        "exitSpeed": contact["exitSpeed"],
+        "launchAngle": contact["launchAngle"],
+        "spray": contact["spray"],
+        "hcX": contact["hcX"],
+        "hcY": contact["hcY"],
+        "hitDistance": contact["hitDistance"],
+        "batSpeed": contact["batSpeed"],
+        "swingLength": contact["swingLength"],
+        "contactId": contact["contactId"],
+        "contactEvents": contact["contactEvents"],
     }
 
 
@@ -348,6 +487,7 @@ def throw_pitch(
     seed: int,
     pitch_index: int,
     repeat_alpha: float = DEFAULT_REPEAT_ALPHA,
+    league_bb: list[BatterPitch] | None = None,
 ) -> dict:
     if not 0 <= cell <= 24:
         raise ValueError("コースは 0 から 24 です")
@@ -371,6 +511,9 @@ def throw_pitch(
         rng,
         repeat_alpha,
         batter_bb,
+        pitch_type,
+        throws,
+        league_bb,
     )
     balls_after, strikes_after, pa = advance_count(balls, strikes, decision["outcome"])
     actual_cell = cell_for(chosen.plate_x, chosen.plate_z, sz_bot, sz_top)

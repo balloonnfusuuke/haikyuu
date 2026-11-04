@@ -40,6 +40,17 @@ let readout: BallReadout = {
 
 export const ballWorld = { x: 0, y: 1.1, z: 2, ready: false };
 
+let trail = true;
+
+export function trailEnabled(): boolean {
+  return trail;
+}
+
+export function setTrail(enabled: boolean): void {
+  trail = enabled;
+  listeners.forEach((listener) => listener());
+}
+
 export function getSim(): SimState {
   return state;
 }

@@ -136,6 +136,13 @@ def _read_pitches(path: Path) -> tuple[dict, list[BatterPitch]]:
                 launch_speed=_num(row.get("launchSpeed")),
                 launch_angle=_num(row.get("launchAngle")),
                 spray=spray_degrees(_num(row.get("hcX")), _num(row.get("hcY"))),
+                pitch_id=str(row.get("pitchId") or ""),
+                p_throws=row.get("pThrows") or None,
+                hc_x=_num(row.get("hcX")),
+                hc_y=_num(row.get("hcY")),
+                hit_distance=_num(row.get("hitDistance")),
+                bat_speed=_num(row.get("batSpeed")),
+                swing_length=_num(row.get("swingLength")),
             )
         )
     return raw, pitches

@@ -53,6 +53,55 @@ export function gripDirection(bats: "R" | "L"): { x: number; y: number; z: numbe
   return { x: x / length, y: y / length, z: z / length };
 }
 
+const FOLLOW_S = 0.45;
+
+function unit(x: number, y: number, z: number): { x: number; y: number; z: number } {
+  const length = Math.hypot(x, y, z) || 1;
+  return { x: x / length, y: y / length, z: z / length };
+}
+
+function mix(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  u: number,
+): { x: number; y: number; z: number } {
+  return unit(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u);
+}
+
+/**
+ * グリップを軸に、構えから打球点へ振る。インパクトは tPlate。
+ * 空振りは球の 0.55 ft 下を通す。振り終わると構えに戻る。
+ */
+export function swingDirection(args: {
+  bats: "R" | "L";
+  t: number;
+  tPlate: number | null;
+  duration: number;
+  miss: boolean;
+  ball: { x: number; y: number; z: number } | null;
+}): { x: number; y: number; z: number } {
+  const ready = gripDirection(args.bats);
+  if (args.tPlate == null || args.ball == null) return ready;
+  const hand = handBottom(args.bats);
+  const aim = unit(
+    args.ball.x - hand.x,
+    args.ball.y - hand.y,
+    args.ball.z - (args.miss ? 0.55 : 0) - hand.z,
+  );
+  const start = args.tPlate - Math.max(args.duration, 0.04);
+  if (args.t < start) return ready;
+  if (args.t <= args.tPlate) {
+    return mix(ready, aim, smooth((args.t - start) / (args.tPlate - start)));
+  }
+  if (args.t <= args.tPlate + FOLLOW_S) {
+    const u = (args.t - args.tPlate) / FOLLOW_S;
+    const follow = unit(aim.x * 0.35 + ready.x, aim.y * 0.2 + 0.45, aim.z * 0.35 + ready.z * 0.35);
+    if (u < 0.35) return mix(aim, follow, u / 0.35);
+    return mix(follow, ready, (u - 0.35) / 0.65);
+  }
+  return ready;
+}
+
 export type MittPlace = {
   x: number;
   y: number;

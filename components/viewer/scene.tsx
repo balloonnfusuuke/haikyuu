@@ -7,9 +7,9 @@ import { useFrame, useThree } from "@react-three/fiber";
 import type { Vec3 } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
 import { statcastToWorld } from "@/lib/coords";
-import { ballCamera, cameraPose, type CameraPreset, type StadiumReport } from "@/lib/field";
-import { ballWorld } from "@/lib/sim";
-import { Actors, ArrivalRing, LandingMark, StrikeZone, TrajectoryLine } from "./actors";
+import { ballCamera, cameraPose, chaseCamera, type CameraPreset, type StadiumReport } from "@/lib/field";
+import { ballWorld, getSim } from "@/lib/sim";
+import { Actors, ArrivalRing, BallTrail, LandingMark, StrikeZone } from "./actors";
 import { PitchBall } from "./ball";
 import { FieldLighting } from "./lighting";
 import { Stadium } from "./stadium";
@@ -36,23 +36,61 @@ function CameraRig({
 
   useFrame((_, delta) => {
     if (!controls) return;
-    const followBall = preset === "ball" && ballWorld.ready;
-    if (!followBall && blend.current <= 0) return;
-    const pose = followBall
-      ? ballCamera(frame, ballWorld)
-      : cameraPose(preset === "ball" ? "catcher" : preset, frame, catcher);
+    const orbit = controls as { enabled?: boolean; target: THREE.Vector3 };
+    const followBall = (preset === "ball" || preset === "chase") && ballWorld.ready;
+    if (followBall) {
+      orbit.enabled = false;
+      const pose = preset === "chase" ? chaseCamera(frame, ballWorld) : ballCamera(frame, ballWorld);
+      goalPos.current.set(pose.position.x, pose.position.y, pose.position.z);
+      goalTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
+      const alpha = 1 - Math.exp(-14 * Math.min(delta, 0.05));
+      camera.position.lerp(goalPos.current, alpha);
+      camera.lookAt(goalTarget.current);
+      orbit.target.copy(goalTarget.current);
+      return;
+    }
+    if (orbit.enabled === false) orbit.enabled = true;
+    if (blend.current <= 0) return;
+    const pose = cameraPose(preset === "ball" || preset === "chase" ? "catcher" : preset, frame, catcher);
     goalPos.current.set(pose.position.x, pose.position.y, pose.position.z);
     goalTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
-    const alpha = 1 - Math.exp(-(followBall ? 12 : 8) * Math.min(delta, 0.05));
+    const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.05));
     camera.position.lerp(goalPos.current, alpha);
-    controls.target.lerp(goalTarget.current, alpha);
-    if (
-      !followBall &&
-      camera.position.distanceTo(goalPos.current) < 0.03 &&
-      controls.target.distanceTo(goalTarget.current) < 0.03
-    ) {
+    orbit.target.lerp(goalTarget.current, alpha);
+    if (camera.position.distanceTo(goalPos.current) < 0.03 && orbit.target.distanceTo(goalTarget.current) < 0.03) {
       blend.current = 0;
     }
+  }, -2);
+
+  return null;
+}
+
+function ContactSound({ clip }: { clip: Clip }) {
+  const catchAudio = useRef<HTMLAudioElement | null>(null);
+  const hitAudio = useRef<HTMLAudioElement | null>(null);
+  const played = useRef<string | null>(null);
+
+  useEffect(() => {
+    catchAudio.current = new Audio("/sounds/catch.wav");
+    hitAudio.current = new Audio("/sounds/hit.wav");
+  }, []);
+
+  useFrame(() => {
+    const noise = clip.noise;
+    const tPlate = clip.tPlate;
+    if (!noise || tPlate == null) return;
+    const t = getSim().t;
+    const key = `${clip.id}:${noise}:${tPlate}`;
+    if (t + 1e-3 < tPlate) {
+      if (played.current === key) played.current = null;
+      return;
+    }
+    if (played.current === key) return;
+    played.current = key;
+    const node = noise === "hit" ? hitAudio.current : catchAudio.current;
+    if (!node) return;
+    node.currentTime = 0;
+    void node.play().catch(() => undefined);
   });
 
   return null;
@@ -104,7 +142,8 @@ export function FieldScene({
       {report && (
         <>
           <FieldLighting frame={report.frame} night={night} dayHdri={dayHdri} nightHdri={nightHdri} />
-          <TrajectoryLine clip={clip} frame={report.frame} />
+          <BallTrail clip={clip} frame={report.frame} />
+          <ContactSound clip={clip} />
           <ReleaseMark clip={clip} frame={report.frame} />
           {showZone && clip.kind === "pitch" && <StrikeZone clip={clip} frame={report.frame} />}
           {clip.kind === "pitch" && <ArrivalRing clip={clip} frame={report.frame} />}

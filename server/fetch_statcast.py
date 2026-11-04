@@ -48,6 +48,15 @@ def _float(value):
     return float(value)
 
 
+def _pitch_id(row) -> str | None:
+    game = row.get("game_pk")
+    at_bat = row.get("at_bat_number")
+    number = row.get("pitch_number")
+    if pd.isna(game) or pd.isna(at_bat) or pd.isna(number):
+        return None
+    return f"{int(game)}:{int(at_bat)}:{int(number)}"
+
+
 def _text(value) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)) or pd.isna(value):
         return None
@@ -129,6 +138,11 @@ def batter_record(row) -> dict | None:
         "launchAngle": _float(row.get("launch_angle")),
         "hcX": _float(row.get("hc_x")),
         "hcY": _float(row.get("hc_y")),
+        "hitDistance": _float(row.get("hit_distance_sc")),
+        "batSpeed": _float(row.get("bat_speed")),
+        "swingLength": _float(row.get("swing_length")),
+        "pThrows": _text(row.get("p_throws")),
+        "pitchId": _pitch_id(row),
     }
 
 

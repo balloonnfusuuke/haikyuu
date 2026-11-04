@@ -122,6 +122,7 @@ def simulate_outcomes(
     plate_appearances: int,
     seed: int,
     repeat_alpha: float,
+    league_contact: list[BatterPitch] | None = None,
 ) -> dict:
     """テスト年に見た球の分布で配球し、学習年の判断で打席を進める。"""
     by_count: dict[str, list[BatterPitch]] = {}
@@ -153,6 +154,9 @@ def simulate_outcomes(
                 rng,
                 repeat_alpha,
                 contact,
+                faced.pitch_type,
+                faced.p_throws,
+                league_contact if league_contact is not None else contact,
             )
             tally.pitches += 1
             if count in COUNT_KEYS:
@@ -206,6 +210,7 @@ def compare_batter(
     plate_appearances: int = HOLDOUT_PA,
     seed: int = HOLDOUT_SEED,
     repeat_alpha: float = 0.06,
+    league_contact: list[BatterPitch] | None = None,
 ) -> dict:
     actual = summarize_actual(seen)
     trained = summarize_actual(contact)
@@ -219,6 +224,7 @@ def compare_batter(
         plate_appearances,
         seed,
         repeat_alpha,
+        league_contact,
     )
     report = {
         "batterId": batter_id,
