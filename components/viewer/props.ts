@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { BALL_RADIUS_M } from "@/lib/field-constants";
+import { noteDracoSpan } from "@/lib/perf";
 
 class SeamCurve extends THREE.Curve<THREE.Vector3> {
   constructor(private readonly radius: number) {
@@ -39,7 +40,14 @@ export function createBaseball(): THREE.Group {
   return group;
 }
 
-/** グリップ端が原点、+Y が先端。長さ 34 インチ。 */
+function marker(name: string, y = 0): THREE.Object3D {
+  const empty = new THREE.Object3D();
+  empty.name = name;
+  empty.position.y = y;
+  return empty;
+}
+
+/** ファイルが無いときのバット。グリップの両端はマーカーで、配置はファイルと同じ経路を通る。 */
 export function createBat(): THREE.Group {
   const length = 0.864;
   const group = new THREE.Group();
@@ -51,18 +59,27 @@ export function createBat(): THREE.Group {
     new THREE.MeshStandardMaterial({ color: "#c9a36a", roughness: 0.55 }),
   );
   mesh.castShadow = true;
-  group.add(mesh);
+  group.add(mesh, marker("Marker_GripBottom", 0), marker("Marker_GripTop", 0.12));
   return group;
 }
 
-/** 捕球点が原点のミット。 */
+/** ファイルが無いときのミット。ポケットは原点、開口は +Z。閉じる形はモーフ Close。 */
 export function createMitt(): THREE.Group {
   const group = new THREE.Group();
   group.name = "Mitt";
+  const geometry = new THREE.SphereGeometry(0.12, 24, 16);
+  const closed = geometry.attributes.position.clone();
+  for (let index = 0; index < closed.count; index += 1) {
+    const z = closed.getZ(index);
+    if (z > 0) closed.setZ(index, z * 0.15);
+  }
+  geometry.morphAttributes.position = [closed];
   const pocket = new THREE.Mesh(
-    new THREE.SphereGeometry(0.12, 24, 16),
+    geometry,
     new THREE.MeshStandardMaterial({ color: "#7a3b22", roughness: 0.72 }),
   );
+  pocket.morphTargetDictionary = { Close: 0 };
+  pocket.morphTargetInfluences = [0];
   pocket.scale.set(1.15, 0.42, 0.95);
   pocket.castShadow = true;
   const wrist = new THREE.Mesh(
@@ -72,8 +89,70 @@ export function createMitt(): THREE.Group {
   wrist.rotation.x = Math.PI / 2;
   wrist.position.z = -0.08;
   wrist.castShadow = true;
-  group.add(pocket, wrist);
+  group.add(pocket, wrist, marker("Marker_Pocket"));
   return group;
+}
+
+export type MarkerFrame = { point: THREE.Vector3; forward: THREE.Vector3; up: THREE.Vector3 };
+
+/** ルートがまだシーンに入る前の、マーカーのローカル位置と軸。 */
+export function localMarker(root: THREE.Object3D, name: string): MarkerFrame | null {
+  root.updateWorldMatrix(true, true);
+  const found = root.getObjectByName(name);
+  if (!found) return null;
+  const point = found.getWorldPosition(new THREE.Vector3());
+  const rotation = found.getWorldQuaternion(new THREE.Quaternion());
+  root.worldToLocal(point);
+  const inverse = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+  return {
+    point,
+    forward: new THREE.Vector3(0, 0, 1).applyQuaternion(rotation).applyQuaternion(inverse),
+    up: new THREE.Vector3(0, 1, 0).applyQuaternion(rotation).applyQuaternion(inverse),
+  };
+}
+
+export function setMorph(root: THREE.Object3D, name: string, value: number): boolean {
+  let found = false;
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    const index = mesh.morphTargetDictionary?.[name];
+    if (index == null || !mesh.morphTargetInfluences) return;
+    mesh.morphTargetInfluences[index] = value;
+    found = true;
+  });
+  return found;
+}
+
+export function setTreeOpacity(root: THREE.Object3D, opacity: number): void {
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      const standard = material as THREE.MeshStandardMaterial;
+      if (standard.userData.gearOpacity == null) standard.userData.gearOpacity = standard.opacity;
+      if (standard.userData.gearTransparent == null) standard.userData.gearTransparent = standard.transparent;
+      const solid = opacity >= 0.999;
+      standard.opacity = solid ? (standard.userData.gearOpacity as number) : opacity;
+      standard.transparent = solid ? (standard.userData.gearTransparent as boolean) : true;
+      standard.depthWrite = solid;
+      standard.needsUpdate = true;
+    }
+  });
+}
+
+export function watchDraco(draco: DRACOLoader): void {
+  const loader = draco as DRACOLoader & {
+    decodeGeometry: (buffer: ArrayBuffer, taskConfig: unknown) => Promise<THREE.BufferGeometry>;
+  };
+  const original = loader.decodeGeometry.bind(loader);
+  loader.decodeGeometry = (buffer, taskConfig) => {
+    const start = performance.now();
+    return original(buffer, taskConfig).then((geometry) => {
+      noteDracoSpan(start, performance.now());
+      return geometry;
+    });
+  };
 }
 
 export async function fetchExists(url: string): Promise<boolean> {
@@ -91,6 +170,7 @@ export async function loadGltf(url: string): Promise<THREE.Group | null> {
   const buffer = await response.arrayBuffer();
   const draco = new DRACOLoader();
   draco.setDecoderPath("/draco/");
+  watchDraco(draco);
   const loader = new GLTFLoader();
   loader.setDRACOLoader(draco);
   try {

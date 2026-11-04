@@ -8,8 +8,9 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MARKER } from "@/lib/field-constants";
 import { reportFromMarkers, type StadiumReport } from "@/lib/field";
 import type { Vec3 } from "@/lib/coords";
-import { markStadiumShown, noteDracoSpan, noteFetch, noteLoadStart, noteParse } from "@/lib/perf";
+import { markStadiumShown, noteFetch, noteLoadStart, noteParse } from "@/lib/perf";
 import { buildPlaceholder } from "./placeholder";
+import { watchDraco } from "./props";
 
 function worldVec(object: THREE.Object3D): Vec3 {
   const world = object.getWorldPosition(new THREE.Vector3());
@@ -64,20 +65,6 @@ export function applyAo(root: THREE.Object3D, intensity: number): void {
   });
 }
 
-function timeDraco(draco: DRACOLoader) {
-  const loader = draco as DRACOLoader & {
-    decodeGeometry: (buffer: ArrayBuffer, taskConfig: unknown) => Promise<THREE.BufferGeometry>;
-  };
-  const original = loader.decodeGeometry.bind(loader);
-  loader.decodeGeometry = (buffer, taskConfig) => {
-    const start = performance.now();
-    return original(buffer, taskConfig).then((geometry) => {
-      noteDracoSpan(start, performance.now());
-      return geometry;
-    });
-  };
-}
-
 /** メッシュをシーンに入れたフレームの描画が終わってから、表示完了にする。 */
 function ShownMark() {
   const marked = useRef(false);
@@ -107,7 +94,7 @@ export function Stadium({
     noteLoadStart();
     const draco = new DRACOLoader();
     draco.setDecoderPath("/draco/");
-    timeDraco(draco);
+    watchDraco(draco);
     const loader = new GLTFLoader();
     loader.setDRACOLoader(draco);
 

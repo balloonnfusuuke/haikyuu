@@ -1,14 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Line } from "@react-three/drei";
-import { statcastToWorld, type FieldFrame, type Vec3 } from "@/lib/coords";
+import { useFrame } from "@react-three/fiber";
+import { alignPointDirection } from "@/lib/align";
+import { statcastDirToWorld, statcastToWorld, type FieldFrame, type Vec3 } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
-import { sampleNearY } from "@/lib/clips";
+import { sampleAt } from "@/lib/clips";
+import { getGear, mittCatches, subscribeGear } from "@/lib/gear";
+import { getSim } from "@/lib/sim";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
+import {
+  batterFeet,
+  FIGURE_BODY_LENGTH_M,
+  FIGURE_BODY_RADIUS_M,
+  gripDirection,
+  handBottom,
+  MITT_SETUP_Y_FT,
+  mittPlace,
+} from "@/lib/stance";
 import { propSource } from "./ball";
-import { createMitt, fitLength, loadGltf } from "./props";
+import { createBat, createMitt, loadGltf, localMarker, setMorph, setTreeOpacity, type MarkerFrame } from "./props";
 
 function toVector(point: Vec3): [number, number, number] {
   return [point.x, point.y, point.z];
@@ -90,8 +103,8 @@ function Figure({
   const quaternion = useMemo(() => facing(frame), [frame]);
   const crouched = kind === "catcher";
   const uniform = kind === "batter" ? "#1d2a44" : "#8d98a3";
-  const bodyRadius = crouched ? 0.18 : 0.2;
-  const bodyLength = crouched ? 0.28 : 0.82;
+  const bodyRadius = crouched ? 0.18 : FIGURE_BODY_RADIUS_M;
+  const bodyLength = crouched ? 0.28 : FIGURE_BODY_LENGTH_M;
   const bodyCenter = bodyLength / 2 + bodyRadius;
   const headY = bodyLength + bodyRadius * 2 + (crouched ? 0.01 : 0.08);
   return (
@@ -108,28 +121,51 @@ function Figure({
   );
 }
 
+function filesAllowed(): boolean {
+  return typeof window === "undefined" || new URLSearchParams(window.location.search).get("props") !== "procedural";
+}
+
+function rememberProps(): void {
+  window.__plateProps = propSource;
+}
+
 export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
-  const [batModel, setBatModel] = useState<THREE.Object3D | null>(null);
-  const [mittModel, setMittModel] = useState<THREE.Object3D | null>(null);
+  const [batModel, setBatModel] = useState<THREE.Object3D>(() => anchored(createBat()));
+  const [mittModel, setMittModel] = useState<THREE.Object3D>(() => anchored(createMitt()));
   const [vrm, setVrm] = useState<THREE.Object3D | null>(null);
-  const proceduralMitt = useMemo(() => createMitt(), []);
+  const batRig = useRef<THREE.Group>(null);
+  const mittRig = useRef<THREE.Group>(null);
+  const clipRef = useRef(clip);
+  clipRef.current = clip;
+  const [, setGearTick] = useState(0);
+
+  useEffect(() => subscribeGear(() => setGearTick((value) => value + 1)), []);
 
   useEffect(() => {
     let cancelled = false;
+    propSource.bat = "procedural";
+    propSource.mitt = "procedural";
+    rememberProps();
     (async () => {
-      const [bat, mitt] = await Promise.all([loadGltf("/models/bat.glb"), loadGltf("/models/mitt.glb")]);
-      if (cancelled) return;
-      if (bat) {
-        propSource.bat = "file";
-        setBatModel(fitLength(bat, 0.864));
-      } else {
-        propSource.bat = "procedural";
-      }
-      if (mitt) {
-        propSource.mitt = "file";
-        setMittModel(mitt);
-      } else {
-        propSource.mitt = "procedural";
+      if (filesAllowed()) {
+        const [bat, mitt] = await Promise.all([loadGltf("/models/bat.glb"), loadGltf("/models/mitt.glb")]);
+        if (cancelled) return;
+        if (bat && localMarker(bat, "Marker_GripBottom") && localMarker(bat, "Marker_GripTop")) {
+          propSource.bat = "file";
+          setBatModel(anchored(bat));
+        } else if (bat) {
+          console.warn("[plate-tip] bat.glb に Marker_GripBottom と Marker_GripTop がありません。手続きのバットを使います。");
+        }
+        if (mitt && localMarker(mitt, "Marker_Pocket")) {
+          propSource.mitt = "file";
+          setMittModel(anchored(mitt));
+          if (!setMorph(mitt, "Close", 0)) {
+            console.warn("[plate-tip] mitt.glb にモーフ Close がありません。");
+          }
+        } else if (mitt) {
+          console.warn("[plate-tip] mitt.glb に Marker_Pocket がありません。手続きのミットを使います。");
+        }
+        rememberProps();
       }
       const response = await fetch("/models/player.vrm");
       if (cancelled || !response.ok) {
@@ -168,51 +204,132 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
     };
   }, []);
 
-  const batterAt: [number, number, number] = [-3.15, 0.45, 0];
-  const batterWorld = statcastToWorld(frame, batterAt[0], batterAt[1], batterAt[2]);
+  const grip = useMemo(() => readGrip(batModel), [batModel]);
+  const pocket = useMemo(() => localMarker(mittModel, "Marker_Pocket"), [mittModel]);
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
+
+  useFrame(() => {
+    const current = clipRef.current;
+    const field = frameRef.current;
+    const gear = getGear();
+    const t = getSim().t;
+    poseBat(batRig.current, grip, field, gear.bats);
+    poseMitt(mittRig.current, mittModel, pocket, field, current, gear, t);
+  });
+
+  const feet = batterFeet(getGear().bats);
   const face = useMemo(() => facing(frame), [frame]);
-
-  const knob = statcastToWorld(frame, -2.4, 0.2, 3.2);
-  const barrel = statcastToWorld(frame, -0.45, 1.45, 4.7);
-  const batDir = new THREE.Vector3(barrel.x - knob.x, barrel.y - knob.y, barrel.z - knob.z);
-  const batLength = batDir.length() || 1;
-  const batMid = new THREE.Vector3(
-    (knob.x + barrel.x) / 2,
-    (knob.y + barrel.y) / 2,
-    (knob.z + barrel.z) / 2,
-  );
-  const batQuat = new THREE.Quaternion().setFromUnitVectors(
-    new THREE.Vector3(0, 1, 0),
-    batDir.clone().normalize(),
-  );
-
-  const receive = clip.kind === "pitch" ? sampleNearY(clip.samples, -1.2) : { x: 0.4, y: -1.2, z: 2.2 };
-  // 到達位置のリングと重ならないよう、ミットは軌道の脇（捕手から見て右、やや下）に出す。
-  const mittAt = statcastToWorld(frame, receive.x + 0.85, receive.y, Math.max(1.3, receive.z - 0.55));
 
   return (
     <>
       {vrm ? (
-        <primitive object={vrm} position={[batterWorld.x, batterWorld.y, batterWorld.z]} quaternion={face} />
+        <BatterVrm vrm={vrm} frame={frame} face={face} />
       ) : (
-        <Figure kind="batter" frame={frame} at={batterAt} />
+        <Figure kind="batter" frame={frame} at={[feet.x, feet.y, feet.z]} />
       )}
-      <Figure kind="catcher" frame={frame} at={[1.45, -5.6, 0]} />
-      {batModel ? (
-        <primitive object={batModel} position={[knob.x, knob.y, knob.z]} quaternion={batQuat} />
-      ) : (
-        <mesh position={batMid} quaternion={batQuat} castShadow>
-          <cylinderGeometry args={[0.033, 0.016, batLength, 16]} />
-          <meshStandardMaterial color="#c9a36a" roughness={0.55} />
-        </mesh>
-      )}
-      {mittModel ? (
-        <primitive object={mittModel} position={[mittAt.x, mittAt.y, mittAt.z]} quaternion={face} />
-      ) : (
-        <group position={[mittAt.x, mittAt.y, mittAt.z]} quaternion={face}>
-          <primitive object={proceduralMitt} />
-        </group>
-      )}
+      <Figure kind="catcher" frame={frame} at={[1.85, MITT_SETUP_Y_FT - 0.85, 0]} />
+      <group ref={batRig}>
+        <primitive object={batModel} />
+      </group>
+      <group ref={mittRig}>
+        <primitive object={mittModel} />
+      </group>
     </>
   );
+}
+
+function BatterVrm({
+  vrm,
+  frame,
+  face,
+}: {
+  vrm: THREE.Object3D;
+  frame: FieldFrame;
+  face: THREE.Quaternion;
+}) {
+  const feet = batterFeet(getGear().bats);
+  const at = statcastToWorld(frame, feet.x, feet.y, feet.z);
+  return <primitive object={vrm} position={[at.x, at.y, at.z]} quaternion={face} />;
+}
+
+function anchored(model: THREE.Object3D): THREE.Group {
+  const group = new THREE.Group();
+  group.add(model);
+  return group;
+}
+
+function readGrip(root: THREE.Object3D): { bottom: MarkerFrame; top: MarkerFrame } | null {
+  const bottom = localMarker(root, "Marker_GripBottom");
+  const top = localMarker(root, "Marker_GripTop");
+  if (!bottom || !top) return null;
+  return { bottom, top };
+}
+
+function poseBat(
+  rig: THREE.Group | null,
+  grip: { bottom: MarkerFrame; top: MarkerFrame } | null,
+  frame: FieldFrame,
+  bats: "R" | "L",
+): void {
+  if (!rig || !grip) return;
+  const hand = handBottom(bats);
+  const dir = gripDirection(bats);
+  const bottom = statcastToWorld(frame, hand.x, hand.y, hand.z);
+  const pose = alignPointDirection(
+    grip.bottom.point,
+    grip.top.point.clone().sub(grip.bottom.point),
+    grip.top.up,
+    new THREE.Vector3(bottom.x, bottom.y, bottom.z),
+    vector(statcastDirToWorld(frame, dir)),
+    new THREE.Vector3(frame.up.x, frame.up.y, frame.up.z),
+  );
+  rig.position.copy(pose.position);
+  rig.quaternion.copy(pose.quaternion);
+}
+
+function poseMitt(
+  rig: THREE.Group | null,
+  model: THREE.Object3D,
+  pocket: MarkerFrame | null,
+  frame: FieldFrame,
+  clip: Clip,
+  gear: ReturnType<typeof getGear>,
+  t: number,
+): void {
+  if (!rig || !pocket) return;
+  const arrival = clip.tPlate == null ? null : sampleAt(clip.samples, clip.tPlate);
+  const calledX = gear.calledX ?? arrival?.x ?? clip.modelPlateX ?? 0;
+  const calledZ = gear.calledZ ?? arrival?.z ?? (clip.szTop + clip.szBot) / 2;
+  const place = mittPlace({
+    t,
+    tStart: clip.tStart,
+    tPlate: clip.kind === "pitch" ? clip.tPlate : null,
+    calledX,
+    calledZ,
+    arriveX: arrival?.x ?? calledX,
+    arriveY: arrival?.y ?? PLATE_FRONT_FT,
+    arriveZ: arrival?.z ?? calledZ,
+    outcome: gear.outcome,
+    drop: gear.mittView === "down",
+    ghost: gear.mittView === "clear",
+    catches: mittCatches(gear.outcome),
+  });
+  const target = statcastToWorld(frame, place.x, place.y, place.z);
+  const pose = alignPointDirection(
+    pocket.point,
+    pocket.forward,
+    pocket.up,
+    new THREE.Vector3(target.x, target.y, target.z),
+    vector(statcastDirToWorld(frame, { x: 0, y: 1, z: 0 })),
+    new THREE.Vector3(frame.up.x, frame.up.y, frame.up.z),
+  );
+  rig.position.copy(pose.position);
+  rig.quaternion.copy(pose.quaternion);
+  setMorph(model, "Close", place.close);
+  setTreeOpacity(model, place.opacity);
+}
+
+function vector(value: Vec3): THREE.Vector3 {
+  return new THREE.Vector3(value.x, value.y, value.z);
 }

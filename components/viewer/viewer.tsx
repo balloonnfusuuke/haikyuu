@@ -6,7 +6,9 @@ import { Canvas } from "@react-three/fiber";
 import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/field";
 import { DEFAULT_CLIP_ID, getClip, type Clip } from "@/lib/clips";
 import { beginPlaySample, noteGpu, perf } from "@/lib/perf";
+import { getGear, setGear } from "@/lib/gear";
 import { getSim, setSim } from "@/lib/sim";
+import { propSource } from "./ball";
 import { Button } from "@/components/ui/button";
 import { GamePanel } from "@/components/game/panel";
 import { FieldScene } from "./scene";
@@ -56,7 +58,13 @@ export default function Viewer() {
   useEffect(() => {
     window.__platePerf = perf;
     window.__plateControl = { getSim, setSim, beginPlaySample };
+    window.__plateGear = { getGear, setGear };
+    window.__plateProps = propSource;
   }, []);
+
+  useEffect(() => {
+    window.__plateClip = { tStart: clip.tStart, tPlate: clip.tPlate, tEnd: clip.tEnd };
+  }, [clip]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

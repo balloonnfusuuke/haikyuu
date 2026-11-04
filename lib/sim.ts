@@ -64,6 +64,17 @@ declare global {
       setSim: (patch: Partial<SimState>) => void;
       beginPlaySample: () => void;
     };
+    __plateProps?: {
+      ball: string;
+      bat: string;
+      mitt: string;
+      vrm: string;
+    };
+    __plateGear?: {
+      getGear: () => import("@/lib/gear").Gear;
+      setGear: (patch: Partial<import("@/lib/gear").Gear>) => void;
+    };
+    __plateClip?: { tStart: number; tPlate: number | null; tEnd: number };
   }
 }
 

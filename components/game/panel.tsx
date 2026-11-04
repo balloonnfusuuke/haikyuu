@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { advanceRunners, basesLabel, EMPTY_BASES, playKind, type Bases } from "@/lib/bases";
+import { setGear, type MittView } from "@/lib/gear";
 import { clipFromPitch } from "@/lib/game-clip";
+import { cellCenter } from "@/lib/zone-grid";
 import type { Clip } from "@/lib/clips";
 import {
   fetchHoldout,
@@ -93,6 +95,7 @@ export function GamePanel({
   const [inningOver, setInningOver] = useState(false);
   const [holdout, setHoldout] = useState<Holdout | null>(null);
   const [holdoutError, setHoldoutError] = useState<string | null>(null);
+  const [mittView, setMittView] = useState<MittView>("down");
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +170,12 @@ export function GamePanel({
     setInningOver(false);
   }
 
+  function pickMitt(next: MittView) {
+    const value = mittView === next ? "full" : next;
+    setMittView(value);
+    setGear({ mittView: value });
+  }
+
   async function throwPitch() {
     if (!pitcher || !batter || !pitchType || inningOver) return;
     if (mode === "pa" && over) return;
@@ -194,6 +203,8 @@ export function GamePanel({
               launchAngle: thrown.decision.launchAngle ?? 0,
               spray: thrown.decision.spray ?? 0,
             };
+      const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
+      setGear({ bats: batter.bats, calledX, calledZ, outcome: thrown.decision.outcome });
       onClip(clipFromPitch(thrown.pitch, contact));
       const row = rowFrom(log.length + 1, thrown);
       const nextLog = [...log, row];
@@ -253,6 +264,12 @@ export function GamePanel({
   }
 
   const report = holdout?.batters.find((item) => item.batterId === batter?.id) ?? null;
+
+  useEffect(() => {
+    if (!batter) return;
+    const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
+    setGear({ bats: batter.bats, calledX, calledZ });
+  }, [batter, cell]);
   const calling = mode === "pa" || !inningOver;
 
   return (
@@ -407,6 +424,12 @@ export function GamePanel({
             </Button>
             <Button type="button" size="sm" variant={showAxis ? "secondary" : "outline"} onClick={() => onAxis(!showAxis)}>
               回転軸
+            </Button>
+            <Button type="button" size="sm" variant={mittView === "down" ? "secondary" : "outline"} onClick={() => pickMitt("down")}>
+              ミットを下げる
+            </Button>
+            <Button type="button" size="sm" variant={mittView === "clear" ? "secondary" : "outline"} onClick={() => pickMitt("clear")}>
+              ミットを透かす
             </Button>
           </div>
         </>
