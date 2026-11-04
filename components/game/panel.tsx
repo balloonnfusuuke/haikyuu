@@ -188,7 +188,13 @@ export function GamePanel({
   function playThrown(thrown: ThrownPitch) {
     if (!batter) return;
     const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
-    setGear({ bats: batter.bats, calledX, calledZ, outcome: thrown.decision.outcome });
+    setGear({
+      bats: batter.bats,
+      calledX,
+      calledZ,
+      outcome: thrown.decision.outcome,
+      homeRun: thrown.decision.park?.bip === "home_run",
+    });
     onClip(clipFromPitch(thrown.pitch, contactFrom(thrown)));
   }
 

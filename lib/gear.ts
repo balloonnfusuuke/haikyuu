@@ -6,6 +6,8 @@ export type Gear = {
   calledZ: number | null;
   /** ゲームの結果。null はまだ投球していない。 */
   outcome: string | null;
+  /** この打球が甲子園のフェンスを越えた本塁打か。 */
+  homeRun: boolean;
   mittView: MittView;
 };
 
@@ -16,6 +18,7 @@ let gear: Gear = {
   calledX: null,
   calledZ: null,
   outcome: null,
+  homeRun: false,
   mittView: "down",
 };
 
