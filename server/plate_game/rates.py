@@ -41,6 +41,9 @@ IN_PLAY = {"hit_into_play", "hit_into_play_no_out", "hit_into_play_score"}
 TAKE = {"ball", "blocked_ball", "called_strike"}
 SKIP = {"pitchout", "intent_ball", "hit_by_pitch", "automatic_ball"}
 
+K_EVENTS = {"strikeout", "strikeout_double_play"}
+BB_EVENTS = {"walk", "intent_walk"}
+
 OUT_EVENTS = {
     "field_out",
     "force_out",
@@ -94,7 +97,7 @@ def pitch_group(pitch_type: str | None) -> str:
 def bip_result(events: str | None) -> str | None:
     if events in OUT_EVENTS or events in {None, ""}:
         return "out" if events else None
-    if events == "single" or events == "field_error":
+    if events == "single":
         return "single"
     if events == "double":
         return "double"
@@ -246,25 +249,32 @@ def shrink(successes: int, trials: int, league_p: float, prior: int) -> float:
     return (successes + prior * league_p) / (trials + prior)
 
 
+def _steps(group: str, cell: int, count: str, priors: tuple[int, int, int, int, int]):
+    """全体 → カウント → コース → コース×カウント → 球種×コース×カウント。
+
+    コースを球種より先に置く。マスの中と外で振らないかが、球種の細かい差より先に残る。
+    """
+    return (
+        (None, None, None, priors[0]),
+        (None, None, count, priors[1]),
+        (None, cell, None, priors[2]),
+        (None, cell, count, priors[3]),
+        (group, cell, count, priors[4]),
+    )
+
+
 def _nested(
     batter: Table,
     league_rate_for,
     group: str,
     cell: int,
     count: str,
-    priors: tuple[int, int, int, int],
+    priors: tuple[int, int, int, int, int],
     numerator: str,
     denominator: str,
 ) -> tuple[float, int]:
-    """全体 → カウント → 球種×カウント → 球種×コース×カウント。各段で球数が少ないほど前の段に寄る。"""
-    steps = (
-        (None, None, None, priors[0]),
-        (None, None, count, priors[1]),
-        (group, None, count, priors[2]),
-        (group, cell, count, priors[3]),
-    )
     estimate = league_rate_for(group, cell, count)
-    for item_group, item_cell, item_count, prior in steps:
+    for item_group, item_cell, item_count, prior in _steps(group, cell, count, priors):
         bucket = batter.sum_matching(item_group, item_cell, item_count)
         estimate = shrink(getattr(bucket, numerator), getattr(bucket, denominator), estimate, prior)
     exact = batter.sum_matching(group, cell, count)
@@ -278,7 +288,7 @@ def batter_swing(batter: Table, league: Table, group: str, cell: int, count: str
         group,
         cell,
         count,
-        (PRIOR_SWING, 24, 16, 8),
+        (36, 18, 12, 8, 6),
         "swing",
         "n",
     )
@@ -291,7 +301,7 @@ def batter_whiff(batter: Table, league: Table, group: str, cell: int, count: str
         group,
         cell,
         count,
-        (PRIOR_WHIFF, 20, 14, 8),
+        (28, 16, 14, 10, 8),
         "whiff",
         "swing",
     )
@@ -304,18 +314,18 @@ def batter_foul(batter: Table, league: Table, group: str, cell: int, count: str)
         group,
         cell,
         count,
-        (PRIOR_FOUL, 16, 12, 6),
+        (24, 14, 12, 8, 6),
         "foul",
         "contact",
     )
 
 
 def batter_bip(batter: Table, league: Table, group: str, cell: int, count: str) -> dict[str, float]:
-    exact = batter.sum_matching(group, cell, count)
-    league_share = league_bip(league, group, cell, count)
-    mixed: dict[str, float] = {}
-    for key in BIP_KEYS:
-        successes = getattr(exact, key)
-        mixed[key] = successes + PRIOR_BIP * league_share[key]
-    total = sum(mixed.values())
-    return {key: value / total for key, value in mixed.items()}
+    """安打の内訳も、全体の成績が残るように段を重ねる。1マスだけだと本塁打が平均に消える。"""
+    share = league_bip(league, group, cell, count)
+    for item_group, item_cell, item_count, prior in _steps(group, cell, count, (24, 16, 14, 10, 8)):
+        bucket = batter.sum_matching(item_group, item_cell, item_count)
+        mixed = {key: getattr(bucket, key) + prior * share[key] for key in BIP_KEYS}
+        total = sum(mixed.values())
+        share = {key: value / total for key, value in mixed.items()}
+    return share

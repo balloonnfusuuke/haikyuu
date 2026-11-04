@@ -17,6 +17,8 @@ export type BatterCard = {
   szTop: number;
   szBot: number;
   pitches: number;
+  modelPitches: number;
+  modelNote: string;
 };
 
 export type Roster = {
@@ -52,6 +54,9 @@ export type PitchDecision = {
   whiffSamples: number;
   foulSamples: number;
   repeatStreak: number;
+  exitSpeed: number | null;
+  launchAngle: number | null;
+  spray: number | null;
 };
 
 export type PitchResult = {
@@ -77,17 +82,6 @@ export type ThrownPitch = {
   decision: PitchDecision;
   result: PitchResult;
   historyItem: HistoryItem;
-};
-
-export type Calibration = {
-  batterId: number;
-  name: string;
-  seed: number;
-  repeatAlpha: number;
-  actual: { pitches: number; swingRate: number; whiffRate: number };
-  simulated: { plateAppearances: number; pitches: number; swingRate: number; whiffRate: number };
-  swingRateGap: number;
-  whiffRateGap: number;
 };
 
 export async function fetchRoster(): Promise<Roster> {
@@ -120,15 +114,41 @@ export async function throwToApi(body: {
   return response.json();
 }
 
-export async function fetchCalibration(batterId: number, seed: number, repeatAlpha: number): Promise<Calibration> {
-  const params = new URLSearchParams({
-    batterId: String(batterId),
-    seed: String(seed),
-    n: "1000",
-    repeatAlpha: String(repeatAlpha),
-  });
-  const response = await fetch(`/api/game/calibration?${params}`);
-  if (!response.ok) throw new Error("1000打席の比較を計算できませんでした");
+export type RateGap = { actual: number; simulated: number; gap: number };
+
+export type CountGap = RateGap & { actualPitches: number; simulatedPitches: number };
+
+export type HoldoutBatter = {
+  batterId: number;
+  name: string;
+  method: string;
+  trainPitches: number;
+  testPitches: number;
+  testPlateAppearances: number;
+  simulatedPlateAppearances: number;
+  swingRate: RateGap;
+  whiffRate: RateGap;
+  strikeoutRate: RateGap;
+  walkRate: RateGap;
+  groundRate: RateGap;
+  lineRate: RateGap;
+  flyRate: RateGap;
+  hitRate: RateGap;
+  extraBaseRate: RateGap;
+  homeRunRate: RateGap;
+  swingByCount: { "0-0": CountGap; "0-2": CountGap; "3-2": CountGap };
+};
+
+export type Holdout = {
+  seed: number;
+  n: number;
+  repeatAlpha: number;
+  batters: HoldoutBatter[];
+};
+
+export async function fetchHoldout(): Promise<Holdout> {
+  const response = await fetch("/api/game/holdout");
+  if (!response.ok) throw new Error("2024年と2025年の比較を計算できませんでした");
   return response.json();
 }
 

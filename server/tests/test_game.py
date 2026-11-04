@@ -2,12 +2,16 @@ import random
 import unittest
 
 from plate_game.engine import (
+    BatterPitch,
     StoredPitch,
     advance_count,
     adjust_for_repeat,
     choose_pitch,
+    pick_contact,
+    spray_degrees,
     throw_pitch,
 )
+from plate_game.store import split_games
 from plate_game.rates import Bucket, Table, batter_swing, shrink
 from plate_game.zone import cell_for, cell_label, is_strike_cell, is_strike_location
 
@@ -54,6 +58,17 @@ class Rates(unittest.TestCase):
         self.assertEqual(samples, 400)
         self.assertLess(rate, 0.2)
 
+    def test_zone_heart_stays_aggressive_and_the_chase_cell_does_not(self):
+        batter = Table()
+        league = Table()
+        league.buckets["*|*|*"] = Bucket(n=800, swing=360)
+        batter.add("FF", 12, "0-0", Bucket(n=80, swing=68))
+        batter.add("FF", 0, "0-0", Bucket(n=80, swing=8))
+        heart, _samples = batter_swing(batter, league, "FF", 12, "0-0")
+        chase, _samples = batter_swing(batter, league, "FF", 0, "0-0")
+        self.assertGreater(heart, 0.7)
+        self.assertLess(chase, 0.25)
+
 
 class Count(unittest.TestCase):
     def test_walk_strikeout_and_foul_at_two_strikes(self):
@@ -78,6 +93,45 @@ class Zone(unittest.TestCase):
         self.assertFalse(is_strike_location(2.2, 2.5, 1.5, 3.5))
         self.assertEqual(cell_for(0.0, 2.5, 1.5, 3.5), 12)
         self.assertIn("内", cell_label(11, "R"))
+
+
+class Contact(unittest.TestCase):
+    def test_spray_is_zero_up_the_middle_and_positive_to_the_right(self):
+        self.assertAlmostEqual(spray_degrees(125.42, 100), 0, places=4)
+        self.assertGreater(spray_degrees(180, 100), 0)
+        self.assertIsNone(spray_degrees(None, 100))
+
+    def test_in_play_uses_a_real_batted_ball(self):
+        ball = BatterPitch(
+            "FF",
+            0.1,
+            2.4,
+            3.5,
+            1.5,
+            0,
+            0,
+            "hit_into_play",
+            "single",
+            "line_drive",
+            "FF",
+            12,
+            launch_speed=104.2,
+            launch_angle=11.0,
+            spray=-8.0,
+        )
+        bb, speed, angle, spray = pick_contact([ball], "single", random.Random(1))
+        self.assertEqual(bb, "line_drive")
+        self.assertEqual(speed, 104.2)
+        self.assertEqual(angle, 11.0)
+        self.assertEqual(spray, -8.0)
+
+    def test_games_split_into_earlier_and_later(self):
+        def pitch_on(day: str) -> BatterPitch:
+            return BatterPitch("FF", 0, 2, 3.5, 1.5, 0, 0, "ball", None, None, "FF", 12, game_date=day)
+
+        early, late = split_games([pitch_on("2024-04-01"), pitch_on("2024-09-01"), pitch_on("2024-05-01")])
+        self.assertEqual([pitch.game_date for pitch in early], ["2024-04-01"])
+        self.assertEqual(sorted(pitch.game_date for pitch in late), ["2024-05-01", "2024-09-01"])
 
 
 class Selection(unittest.TestCase):

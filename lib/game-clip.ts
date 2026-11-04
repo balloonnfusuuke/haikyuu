@@ -1,4 +1,5 @@
-import { buildPitchClip, type Clip } from "@/lib/clips";
+import { integrateBattedBall } from "@/lib/batted";
+import { buildPitchClip, PLATE_FRONT_FT, type Clip } from "@/lib/clips";
 
 export type GamePitch = {
   id: string;
@@ -37,8 +38,10 @@ const COLOR: Record<string, string> = {
   FS: "#6fbf9a",
 };
 
-export function clipFromPitch(pitch: GamePitch): Clip {
-  return buildPitchClip({
+export type ContactFlight = { exitSpeed: number; launchAngle: number; spray: number };
+
+export function clipFromPitch(pitch: GamePitch, contact?: ContactFlight | null): Clip {
+  const clip = buildPitchClip({
     id: pitch.id,
     name: `${pitch.pitchName} · ${pitch.pitcher}`,
     detail: `${pitch.throws === "L" ? "左投手" : "右投手"} · ${pitch.gameDate}`,
@@ -63,4 +66,23 @@ export function clipFromPitch(pitch: GamePitch): Clip {
     szTop: pitch.szTop,
     szBot: pitch.szBot,
   });
+  if (!contact || clip.tPlate == null || clip.modelPlateX == null || clip.modelPlateZ == null) return clip;
+  const flight = integrateBattedBall({
+    x: clip.modelPlateX,
+    y: PLATE_FRONT_FT,
+    z: clip.modelPlateZ,
+    speedMph: contact.exitSpeed,
+    launchDeg: contact.launchAngle,
+    sprayDeg: contact.spray,
+  });
+  const tPlate = clip.tPlate;
+  const kept = clip.samples.filter((sample) => sample.t <= tPlate + 1e-4);
+  const flown = flight.samples.filter((sample) => sample.t > 0.001).map((sample) => ({ ...sample, t: sample.t + tPlate }));
+  const end = flown[flown.length - 1];
+  return {
+    ...clip,
+    samples: end ? [...kept, ...flown] : kept,
+    tEnd: end ? end.t : tPlate,
+    landing: { x: flight.landing.x, y: flight.landing.y, t: flight.landing.t + tPlate },
+  };
 }

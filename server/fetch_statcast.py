@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1] / "data" / "game"
 SEASON_START = "2025-03-27"
 SEASON_END = "2025-11-02"
 LEAGUE_RANGES = [("2025-06-02", "2025-06-08"), ("2025-10-01", "2025-10-05")]
+TRAIN_START = "2024-03-20"
+TRAIN_END = "2024-11-02"
+TRAIN_LEAGUE = [("2024-06-03", "2024-06-09"), ("2024-10-01", "2024-10-05")]
 OFFICIAL = {"R", "F", "D", "L", "W"}
 
 PLAYERS = [
@@ -120,6 +124,11 @@ def batter_record(row) -> dict | None:
         "bbType": _text(row.get("bb_type")),
         "gameDate": str(row["game_date"])[:10],
         "gameType": row["game_type"],
+        "gamePk": None if pd.isna(row.get("game_pk")) else int(row["game_pk"]),
+        "launchSpeed": _float(row.get("launch_speed")),
+        "launchAngle": _float(row.get("launch_angle")),
+        "hcX": _float(row.get("hc_x")),
+        "hcY": _float(row.get("hc_y")),
     }
 
 
@@ -207,6 +216,75 @@ def fetch_league() -> None:
     )
 
 
+def _fetch_batter(player_id: int, name: str, start: str, end: str, path: Path) -> None:
+    print(f"fetch batter {name} {player_id} {start} {end}", flush=True)
+    frame = official_rows(statcast_batter(start, end, player_id))
+    pitches = [record for row in frame.to_dict("records") if (record := batter_record(row))]
+    bats = frame["stand"].dropna().mode().iloc[0] if not frame.empty and "stand" in frame.columns else "R"
+    write_json(
+        path,
+        {
+            "id": player_id,
+            "name": name,
+            "bats": bats,
+            "szTop": median([pitch["szTop"] for pitch in pitches]) if pitches else 3.5,
+            "szBot": median([pitch["szBot"] for pitch in pitches]) if pitches else 1.5,
+            "from": start,
+            "to": end,
+            "pitches": pitches,
+        },
+    )
+
+
+def fetch_training() -> None:
+    """2024年の公式戦。打者の AI はここから作り、2025年では測らない。"""
+    root = ROOT / "train"
+    for _role, last, first in PLAYERS:
+        if _role != "batter":
+            continue
+        player_id, name = lookup_id(last, first)
+        _fetch_batter(player_id, name, TRAIN_START, TRAIN_END, root / "batters" / f"{player_id}.json")
+    frames = []
+    for start, end in TRAIN_LEAGUE:
+        print(f"fetch league {start} {end}", flush=True)
+        frames.append(official_rows(statcast(start, end)))
+    data = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    buckets: dict[str, dict] = {}
+    kept = 0
+    for row in data.to_dict("records"):
+        observed = observe(_text(row.get("description")), _text(row.get("events")))
+        if observed is None or pd.isna(row.get("balls")) or pd.isna(row.get("strikes")):
+            continue
+        balls = int(row["balls"])
+        strikes = int(row["strikes"])
+        if not 0 <= balls <= 3 or not 0 <= strikes <= 2:
+            continue
+        group = pitch_group(row["pitch_type"])
+        cell = cell_for(float(row["plate_x"]), float(row["plate_z"]), float(row["sz_bot"]), float(row["sz_top"]))
+        key = f"{group}|{cell}|{balls}-{strikes}"
+        slot = buckets.setdefault(
+            key,
+            {"n": 0, "swing": 0, "whiff": 0, "contact": 0, "foul": 0, "in_play": 0, "out": 0, "single": 0, "double": 0, "triple": 0, "home_run": 0},
+        )
+        for field, value in observed.as_dict().items():
+            slot[field] += value
+        kept += 1
+    write_json(
+        root / "league.json",
+        {
+            "from": TRAIN_LEAGUE[0][0],
+            "to": TRAIN_LEAGUE[-1][1],
+            "ranges": TRAIN_LEAGUE,
+            "pitches": kept,
+            "note": "2024年のレギュラーシーズン1週間と、ポストシーズンの5日。公式戦（R/F/D/L/W）だけ。打者モデルのリーグ平均に使う。",
+            "buckets": buckets,
+        },
+    )
+
+
 if __name__ == "__main__":
-    fetch_players()
-    fetch_league()
+    if len(sys.argv) > 1 and sys.argv[1] == "train":
+        fetch_training()
+    else:
+        fetch_players()
+        fetch_league()

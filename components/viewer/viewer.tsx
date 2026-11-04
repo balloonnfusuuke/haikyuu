@@ -13,7 +13,13 @@ import { FieldScene } from "./scene";
 
 export default function Viewer() {
   const [clip, setClip] = useState<Clip>(() => getClip(DEFAULT_CLIP_ID));
-  const [snapshot, setSnapshot] = useState({ matchup: "対戦カードを選んでください", balls: 0, strikes: 0, banner: null as string | null });
+  const [snapshot, setSnapshot] = useState({
+    matchup: "対戦カードを選んでください",
+    balls: 0,
+    strikes: 0,
+    banner: null as string | null,
+    inning: null as string | null,
+  });
   const [preset, setPreset] = useState<CameraPreset>("catcher");
   const [night, setNight] = useState(false);
   const [showZone, setShowZone] = useState(true);
@@ -35,9 +41,12 @@ export default function Viewer() {
     setReport(next);
   }, []);
 
-  const onSnapshot = useCallback((next: { matchup: string; balls: number; strikes: number; banner: string | null }) => {
-    setSnapshot(next);
-  }, []);
+  const onSnapshot = useCallback(
+    (next: { matchup: string; balls: number; strikes: number; banner: string | null; inning: string | null }) => {
+      setSnapshot(next);
+    },
+    [],
+  );
 
   function play(next: Clip) {
     setClip(next);
@@ -149,6 +158,7 @@ export default function Viewer() {
               {snapshot.balls}-{snapshot.strikes}
               {snapshot.banner ? ` · ${snapshot.banner}` : ""}
             </p>
+            {snapshot.inning && <p className="font-mono text-xs text-[#c5cdc4]">{snapshot.inning}</p>}
             <p className="text-xs text-[#c5cdc4]">
               {report == null
                 ? "球場を読み込んでいます"

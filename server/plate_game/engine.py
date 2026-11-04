@@ -48,7 +48,7 @@ BB_NAMES = {
 }
 HIT_NAMES = {
     "out": "アウト",
-    "single": "シングル",
+    "single": "単打",
     "double": "二塁打",
     "triple": "三塁打",
     "home_run": "本塁打",
@@ -92,6 +92,11 @@ class BatterPitch:
     bb_type: str | None
     group: str
     cell: int
+    game_date: str = ""
+    game_pk: int | None = None
+    launch_speed: float | None = None
+    launch_angle: float | None = None
+    spray: float | None = None
 
 
 def pitch_name(code: str) -> str:
@@ -235,6 +240,9 @@ def decide(
     foul = False
     bip_key = None
     bb_type = None
+    exit_speed = None
+    launch_angle = None
+    spray = None
     if not swing:
         outcome = "called_strike" if is_strike_location(plate_x, plate_z, sz_bot, sz_top) else "ball"
     elif rng.random() < p_whiff:
@@ -246,15 +254,7 @@ def decide(
     else:
         outcome = "in_play"
         bip_key = sample_bip(bip, rng)
-        matches = [
-            pitch
-            for pitch in bb_pool
-            if pitch.group == group and pitch.events and _event_key(pitch.events) == bip_key and pitch.bb_type
-        ]
-        if not matches:
-            matches = [pitch for pitch in bb_pool if _event_key(pitch.events) == bip_key and pitch.bb_type]
-        if matches:
-            bb_type = rng.choice(matches).bb_type
+        bb_type, exit_speed, launch_angle, spray = pick_contact(bb_pool, bip_key, rng)
 
     return {
         "swing": swing,
@@ -270,6 +270,9 @@ def decide(
         "whiffSamples": whiff_n,
         "foulSamples": foul_n,
         "repeatStreak": streak,
+        "exitSpeed": exit_speed,
+        "launchAngle": launch_angle,
+        "spray": spray,
     }
 
 
@@ -279,6 +282,52 @@ def _event_key(events: str | None) -> str | None:
     if events is None:
         return None
     return bip_result(events)
+
+
+TYPICAL_CONTACT = {
+    "ground_ball": (86.0, -6.0),
+    "line_drive": (97.0, 12.0),
+    "fly_ball": (94.0, 34.0),
+    "popup": (78.0, 65.0),
+}
+
+
+def _default_bb(bip_key: str | None) -> str:
+    if bip_key == "home_run":
+        return "fly_ball"
+    if bip_key in {"double", "single"}:
+        return "line_drive"
+    if bip_key == "triple":
+        return "fly_ball"
+    return "ground_ball"
+
+
+def spray_degrees(hc_x: float | None, hc_y: float | None) -> float | None:
+    """Statcast の hc_x / hc_y。0 が投手方向、正が捕手から見て右。"""
+    if hc_x is None or hc_y is None:
+        return None
+    return math.degrees(math.atan2(hc_x - 125.42, 198.27 - hc_y))
+
+
+def pick_contact(pool: list[BatterPitch], bip_key: str | None, rng: random.Random) -> tuple[str, float, float, float]:
+    """結果に合う実在の打球から、種類・速度・角度・方向を取る。無ければ典型値。"""
+    same = [pitch for pitch in pool if pitch.bb_type and _event_key(pitch.events) == bip_key]
+    chosen = rng.choice(same) if same else None
+    bb_type = chosen.bb_type if chosen and chosen.bb_type else _default_bb(bip_key)
+    if chosen and chosen.launch_speed is not None and chosen.launch_angle is not None:
+        spray = 0.0 if chosen.spray is None else chosen.spray
+        return bb_type, round(chosen.launch_speed, 1), round(chosen.launch_angle, 1), round(spray, 1)
+    measured = [
+        pitch
+        for pitch in pool
+        if pitch.bb_type == bb_type and pitch.launch_speed is not None and pitch.launch_angle is not None
+    ]
+    if measured:
+        sample = rng.choice(measured)
+        spray = 0.0 if sample.spray is None else sample.spray
+        return bb_type, round(sample.launch_speed, 1), round(sample.launch_angle, 1), round(spray, 1)
+    speed, angle = TYPICAL_CONTACT.get(bb_type, (90.0, 10.0))
+    return bb_type, speed, angle, 0.0
 
 
 def throw_pitch(
