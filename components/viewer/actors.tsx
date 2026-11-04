@@ -180,6 +180,7 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
   const [batModel, setBatModel] = useState<THREE.Object3D>(() => anchored(createBat()));
   const [mittModel, setMittModel] = useState<THREE.Object3D>(() => anchored(createMitt()));
   const [vrm, setVrm] = useState<THREE.Object3D | null>(null);
+  const [catcherVrm, setCatcherVrm] = useState<THREE.Object3D | null>(null);
   const batRig = useRef<THREE.Group>(null);
   const mittRig = useRef<THREE.Group>(null);
   const clipRef = useRef(clip);
@@ -243,8 +244,11 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
         scene.scale.multiplyScalar(1.8 / height);
       }
       scene.position.y -= new THREE.Box3().setFromObject(scene).min.y;
+      const { clone } = await import("three/examples/jsm/utils/SkeletonUtils.js");
+      const catcher = clone(scene);
       propSource.vrm = "file";
       setVrm(scene);
+      setCatcherVrm(catcher);
     })();
     return () => {
       cancelled = true;
@@ -267,6 +271,7 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
 
   const feet = batterFeet(getGear().bats);
   const face = useMemo(() => facing(frame), [frame]);
+  const catcherAt: [number, number, number] = [1.85, MITT_SETUP_Y_FT - 0.85, 0];
 
   return (
     <>
@@ -275,7 +280,11 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
       ) : (
         <Figure kind="batter" frame={frame} at={[feet.x, feet.y, feet.z]} />
       )}
-      <Figure kind="catcher" frame={frame} at={[1.85, MITT_SETUP_Y_FT - 0.85, 0]} />
+      {catcherVrm ? (
+        <CatcherVrm vrm={catcherVrm} frame={frame} face={face} at={catcherAt} />
+      ) : (
+        <Figure kind="catcher" frame={frame} at={catcherAt} />
+      )}
       <group ref={batRig}>
         <primitive object={batModel} />
       </group>
@@ -297,7 +306,30 @@ function BatterVrm({
 }) {
   const feet = batterFeet(getGear().bats);
   const at = statcastToWorld(frame, feet.x, feet.y, feet.z);
-  return <primitive object={vrm} position={[at.x, at.y, at.z]} quaternion={face} />;
+  return (
+    <group position={[at.x, at.y, at.z]} quaternion={face}>
+      <primitive object={vrm} />
+    </group>
+  );
+}
+
+function CatcherVrm({
+  vrm,
+  frame,
+  face,
+  at,
+}: {
+  vrm: THREE.Object3D;
+  frame: FieldFrame;
+  face: THREE.Quaternion;
+  at: [number, number, number];
+}) {
+  const position = statcastToWorld(frame, at[0], at[1], at[2]);
+  return (
+    <group position={[position.x, position.y, position.z]} quaternion={face}>
+      <primitive object={vrm} />
+    </group>
+  );
 }
 
 function anchored(model: THREE.Object3D): THREE.Group {

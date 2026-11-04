@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MARKER } from "@/lib/field-constants";
-import { reportFromMarkers, type StadiumReport } from "@/lib/field";
+import { isViewShell, reportFromMarkers, type StadiumReport } from "@/lib/field";
 import type { Vec3 } from "@/lib/coords";
 import { markStadiumShown, noteFetch, noteLoadStart, noteParse } from "@/lib/perf";
 import { buildPlaceholder } from "./placeholder";
@@ -63,6 +63,193 @@ export function applyAo(root: THREE.Object3D, intensity: number): void {
       standard.needsUpdate = true;
     }
   });
+}
+
+const SHELL_OPACITY = 0.14;
+
+type Shell = { meshes: THREE.Mesh[] };
+
+function materialsOf(mesh: THREE.Mesh): THREE.Material[] {
+  return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+}
+
+/** 複数プリミティブは Three.js が Name_1 のように分ける。先頭ゼロの番号（Post_00）は別物のまま。 */
+function shellKey(name: string): string | null {
+  if (!isViewShell(name)) return null;
+  const stripped = name.replace(/_[1-9]\d*$/, "");
+  if (stripped !== name && isViewShell(stripped)) return stripped;
+  return name;
+}
+
+function prepareShells(root: THREE.Object3D): Shell[] {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh && isViewShell(mesh.name)) meshes.push(mesh);
+  });
+  const groups = new Map<string, THREE.Mesh[]>();
+  for (const mesh of meshes) {
+    const key = shellKey(mesh.name);
+    if (!key) continue;
+    const clones = materialsOf(mesh).map((material) => {
+      const clone = material.clone();
+      const standard = clone as THREE.MeshStandardMaterial;
+      clone.userData.shellBaseOpacity = "opacity" in standard ? standard.opacity : 1;
+      clone.userData.shellBaseTransparent = clone.transparent;
+      clone.userData.shellBaseDepthWrite = clone.depthWrite;
+      clone.userData.shellAmount = 0;
+      return clone;
+    });
+    mesh.material = Array.isArray(mesh.material) ? clones : clones[0];
+    const group = groups.get(key);
+    if (group) group.push(mesh);
+    else groups.set(key, [mesh]);
+  }
+  return [...groups.values()].map((group) => ({ meshes: group }));
+}
+
+/** カメラと見ている点の間にある壁・スタンド・ネット・屋根だけを透かす。形は変えない。 */
+function ShellFade({ root }: { root: THREE.Object3D }) {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as { target?: THREE.Vector3 } | null;
+  const shells = useRef<Shell[]>([]);
+  const blocking = useRef(new Set<Shell>());
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const origin = useMemo(() => new THREE.Vector3(), []);
+  const target = useMemo(() => new THREE.Vector3(), []);
+  const direction = useMemo(() => new THREE.Vector3(), []);
+  const lastOrigin = useMemo(() => new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN), []);
+  const lastTarget = useMemo(() => new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN), []);
+  const ray = useMemo(() => new THREE.Ray(), []);
+  const box = useMemo(() => new THREE.Box3(), []);
+  const hitPoint = useMemo(() => new THREE.Vector3(), []);
+  const side = useMemo(() => new THREE.Vector3(), []);
+  const aim = useMemo(() => new THREE.Vector3(), []);
+  const lastCast = useRef(0);
+  const aims = useMemo(
+    () =>
+      [
+        [0, 0],
+        [0, 0.16],
+        [0, 0.32],
+        [-0.2, 0.08],
+        [0.2, 0.08],
+      ] as const,
+    [],
+  );
+
+  useLayoutEffect(() => {
+    shells.current = prepareShells(root);
+    blocking.current = new Set();
+  }, [root]);
+
+  useFrame((_, delta) => {
+    const groups = shells.current;
+    if (groups.length === 0) return;
+    origin.copy(camera.position);
+    if (controls?.target) target.copy(controls.target);
+    else camera.getWorldDirection(target).multiplyScalar(30).add(origin);
+    const moved =
+      !Number.isFinite(lastOrigin.x) ||
+      origin.distanceToSquared(lastOrigin) > 1e-4 ||
+      target.distanceToSquared(lastTarget) > 1e-4;
+    const now = performance.now();
+    if (moved && now - lastCast.current > 120) {
+      lastCast.current = now;
+      lastOrigin.copy(origin);
+      lastTarget.copy(target);
+      direction.subVectors(target, origin);
+      const reach = direction.length();
+      if (reach > 0.4) {
+        direction.multiplyScalar(1 / reach);
+        side.crossVectors(direction, camera.up);
+        if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+        else side.normalize();
+        const candidates: THREE.Mesh[] = [];
+        const seen = new Set<THREE.Mesh>();
+        for (const [ox, oy] of aims) {
+          aim.copy(target).addScaledVector(side, ox * reach).addScaledVector(camera.up, oy * reach);
+          direction.subVectors(aim, origin);
+          const length = direction.length();
+          if (length < 0.4) continue;
+          direction.multiplyScalar(1 / length);
+          ray.set(origin, direction);
+          for (const group of groups) {
+            for (const mesh of group.meshes) {
+              if (seen.has(mesh)) continue;
+              const geometry = mesh.geometry;
+              if (!geometry.boundingBox) geometry.computeBoundingBox();
+              if (!geometry.boundingBox) {
+                seen.add(mesh);
+                candidates.push(mesh);
+                continue;
+              }
+              box.copy(geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+              const hit = ray.intersectBox(box, hitPoint);
+              if (!hit) continue;
+              if (!box.containsPoint(origin) && origin.distanceTo(hitPoint) > length) continue;
+              seen.add(mesh);
+              candidates.push(mesh);
+            }
+          }
+        }
+        const touched: THREE.Material[] = [];
+        for (const mesh of candidates) {
+          for (const material of materialsOf(mesh)) {
+            material.userData.shellSide = material.side;
+            material.side = THREE.DoubleSide;
+            touched.push(material);
+          }
+        }
+        const hits = new Set<THREE.Object3D>();
+        try {
+          for (const [ox, oy] of aims) {
+            aim.copy(target).addScaledVector(side, ox * reach).addScaledVector(camera.up, oy * reach);
+            direction.subVectors(aim, origin);
+            const length = direction.length();
+            if (length < 0.4) continue;
+            direction.multiplyScalar(1 / length);
+            raycaster.set(origin, direction);
+            raycaster.far = length - 0.2;
+            raycaster.near = 0.05;
+            for (const hit of raycaster.intersectObjects(candidates, false)) hits.add(hit.object);
+          }
+        } finally {
+          for (const material of touched) material.side = material.userData.shellSide as THREE.Side;
+        }
+        const next = new Set<Shell>();
+        for (const group of groups) {
+          if (group.meshes.some((mesh) => hits.has(mesh))) next.add(group);
+        }
+        blocking.current = next;
+      }
+    }
+
+    for (const group of groups) {
+      const goal = blocking.current.has(group) ? 1 : 0;
+      for (const mesh of group.meshes) {
+        for (const material of materialsOf(mesh)) {
+          const current = (material.userData.shellAmount as number) ?? 0;
+          const fade = 1 - Math.exp(-18 * Math.min(delta, 0.5));
+          const step = current + (goal - current) * fade;
+          const amount = Math.abs(step - goal) < 0.01 ? goal : step;
+          material.userData.shellAmount = amount;
+          const standard = material as THREE.MeshStandardMaterial;
+          if (!("opacity" in standard)) continue;
+          const base = material.userData.shellBaseOpacity as number;
+          standard.opacity = base * (1 - amount) + SHELL_OPACITY * amount;
+          const transparent = amount > 0.04 || Boolean(material.userData.shellBaseTransparent);
+          if (standard.transparent !== transparent) {
+            standard.transparent = transparent;
+            standard.needsUpdate = true;
+          }
+          standard.depthWrite = amount < 0.45 && Boolean(material.userData.shellBaseDepthWrite);
+        }
+      }
+    }
+  });
+
+  return null;
 }
 
 /** メッシュをシーンに入れたフレームの描画が終わってから、表示完了にする。 */
@@ -173,6 +360,7 @@ export function Stadium({
   return (
     <>
       <primitive object={root} />
+      <ShellFade root={root} />
       <ShownMark />
     </>
   );

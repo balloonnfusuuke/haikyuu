@@ -18,10 +18,24 @@ import {
   type Vec3,
 } from "./coords";
 
-export type CameraPreset = "catcher" | "broadcast" | "rhh" | "lhh" | "side1b" | "side3b" | "ball" | "chase";
+export type CameraPreset =
+  | "catcher"
+  | "backnet"
+  | "infield"
+  | "outfield"
+  | "broadcast"
+  | "rhh"
+  | "lhh"
+  | "side1b"
+  | "side3b"
+  | "ball"
+  | "chase";
 
 export const CAMERA_PRESETS: { id: CameraPreset; label: string }[] = [
   { id: "catcher", label: "捕手" },
+  { id: "backnet", label: "バックネット裏" },
+  { id: "infield", label: "内野席" },
+  { id: "outfield", label: "外野席" },
   { id: "broadcast", label: "中継" },
   { id: "side1b", label: "一塁側" },
   { id: "chase", label: "打球" },
@@ -30,6 +44,11 @@ export const CAMERA_PRESETS: { id: CameraPreset; label: string }[] = [
   { id: "side3b", label: "三塁側" },
   { id: "ball", label: "ボール" },
 ];
+
+/** 視点と見ている点の間に入ったら、見た目だけ透かす外殻。 */
+export function isViewShell(name: string): boolean {
+  return /^(Wall_|Stand_|Backstop_|Roof_|Scoreboard|BackScreen)/.test(name);
+}
 
 export type CameraPose = { position: Vec3; target: Vec3 };
 
@@ -62,6 +81,27 @@ export function cameraPose(
     return {
       position: statcastToWorld(frame, 3.15, 0.35, 5.15),
       target: statcastToWorld(frame, 0, 50, 5.4),
+    };
+  }
+  if (preset === "backnet") {
+    // ネットの直後、目の高さ。ネットの外縁は three の z ≈ 18.4 m。
+    return {
+      position: statcastToWorld(frame, 0, -70, 14),
+      target: zone,
+    };
+  }
+  if (preset === "infield") {
+    // 一塁側の内野席。ファウル側からプレートを見る。
+    return {
+      position: statcastToWorld(frame, 70, 30, 22),
+      target: zone,
+    };
+  }
+  if (preset === "outfield") {
+    // 右中間の外野席。中堅のバックスクリーン（|x| < 17 m）の外側。
+    return {
+      position: statcastToWorld(frame, 78, 405, 26),
+      target: zone,
     };
   }
   if (preset === "broadcast") {

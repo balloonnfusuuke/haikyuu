@@ -54,7 +54,7 @@ function CameraRig({
     const pose = cameraPose(preset === "ball" || preset === "chase" ? "catcher" : preset, frame, catcher);
     goalPos.current.set(pose.position.x, pose.position.y, pose.position.z);
     goalTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
-    const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.05));
+    const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.5));
     camera.position.lerp(goalPos.current, alpha);
     orbit.target.lerp(goalTarget.current, alpha);
     if (camera.position.distanceTo(goalPos.current) < 0.03 && orbit.target.distanceTo(goalTarget.current) < 0.03) {
@@ -156,7 +156,7 @@ export function FieldScene({
             dampingFactor={0.08}
             maxPolarAngle={Math.PI / 2 + 0.45}
             minDistance={0.15}
-            maxDistance={90}
+            maxDistance={190}
           />
           <CameraRig preset={preset} frame={report.frame} catcher={report.catcherCam} />
         </>
