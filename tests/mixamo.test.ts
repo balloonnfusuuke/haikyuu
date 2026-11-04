@@ -11,6 +11,7 @@ import {
   basePoint,
   batClipTime,
   batGripBlend,
+  batterIsCamera,
   leadIn,
   loopDrift,
   pathLengthFt,
@@ -134,4 +135,15 @@ test("投手の軸足は投手板の前縁に付き、投手板から外れな�
   const left = pitcherFeet({ x: 2 }, "L");
   assert.ok(left.x < 1.2 && left.x > 0);
   assert.equal(pitcherFeet({ x: -9 }, "R").x, -1.2);
+});
+
+test("本塁打で自分の打席の目線になっているときだけ、打った後の打者を消す", () => {
+  const base = { preset: "lhh", bats: "L" as const, homeRun: true, tPlate: 0.4, t: 1 };
+  assert.equal(batterIsCamera(base), true);
+  assert.equal(batterIsCamera({ ...base, t: 0.3 }), false);
+  assert.equal(batterIsCamera({ ...base, homeRun: false }), false);
+  assert.equal(batterIsCamera({ ...base, preset: "rhh" }), false);
+  assert.equal(batterIsCamera({ ...base, preset: "catcher" }), false);
+  assert.equal(batterIsCamera({ ...base, tPlate: null }), false);
+  assert.equal(batterIsCamera({ ...base, preset: "rhh", bats: "R" }), true);
 });

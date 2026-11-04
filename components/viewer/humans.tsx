@@ -7,6 +7,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import { alignPointDirection } from "@/lib/align";
 import { FEET_TO_METERS, statcastDirToWorld, statcastToWorld, type FieldFrame } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
+import type { CameraPreset } from "@/lib/field";
 import { MOUND_HEIGHT_FT } from "@/lib/field-constants";
 import { getGear } from "@/lib/gear";
 import {
@@ -16,6 +17,7 @@ import {
   batClipTime,
   batGripBlend,
   batHandoffDelay,
+  batterIsCamera,
   HUMAN_CLIP,
   HUMAN_URL,
   headingAlong,
@@ -319,12 +321,14 @@ export function HumanBatter({
   template,
   clip,
   frame,
+  preset,
   bat,
   grip,
 }: {
   template: HumanTemplate;
   clip: Clip;
   frame: FieldFrame;
+  preset: CameraPreset;
   bat: THREE.Object3D;
   grip: { bottom: MarkerFrame; top: MarkerFrame } | null;
 }) {
@@ -371,7 +375,8 @@ export function HumanBatter({
       holder.position.copy(pose.position);
       holder.quaternion.copy(pose.quaternion);
     }
-    rig.root.visible = !(fair && tPlate != null && t >= tPlate + batHandoffDelay(handoff));
+    const isCamera = batterIsCamera({ preset, bats: gear.bats, homeRun: gear.homeRun, tPlate, t });
+    rig.root.visible = !isCamera && !(fair && tPlate != null && t >= tPlate + batHandoffDelay(handoff));
     hideNearCamera(rig, state.camera);
     updateBounds(rig);
   });
@@ -399,7 +404,17 @@ function smooth(u: number): number {
   return t * t * (3 - 2 * t);
 }
 
-export function HumanRunners({ template, clip, frame }: { template: HumanTemplate; clip: Clip; frame: FieldFrame }) {
+export function HumanRunners({
+  template,
+  clip,
+  frame,
+  preset,
+}: {
+  template: HumanTemplate;
+  clip: Clip;
+  frame: FieldFrame;
+  preset: CameraPreset;
+}) {
   const group = useMemo(() => new THREE.Group(), []);
   const pool = useMemo<HumanRig[]>(() => [], []);
 
@@ -424,9 +439,11 @@ export function HumanRunners({ template, clip, frame }: { template: HumanTemplat
       group.add(rig.root);
       pool.push(rig);
     }
+    const isCamera = batterIsCamera({ preset, bats: gear.bats, homeRun: gear.homeRun, tPlate, t });
     pool.forEach((rig, index) => {
       const run = runs[index];
-      rig.root.visible = run != null && poseRunner(rig, run, template, frame, gear.bats, tPlate, t);
+      rig.root.visible =
+        run != null && !(isCamera && run.from === 0) && poseRunner(rig, run, template, frame, gear.bats, tPlate, t);
       if (!rig.root.visible) return;
       hideNearCamera(rig, state.camera);
       updateBounds(rig);

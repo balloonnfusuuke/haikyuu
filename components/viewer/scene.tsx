@@ -224,7 +224,7 @@ export function FieldScene({
           <CallZone frame={report.frame} />
           {clip.kind === "pitch" && <ArrivalRing clip={clip} frame={report.frame} />}
           <LandingMark clip={clip} frame={report.frame} />
-          <Actors clip={clip} frame={report.frame} />
+          <Actors clip={clip} frame={report.frame} preset={preset} />
           <PitchBall clip={clip} frame={report.frame} showAxis={showAxis} />
           <OrbitControls
             makeDefault

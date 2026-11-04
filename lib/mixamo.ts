@@ -101,6 +101,21 @@ export function batHandoffDelay(handoff: number): number {
   return handoff - BAT_CONTACT_S;
 }
 
+/**
+ * 本塁打のあと打者目線のカメラが一塁へ歩くあいだは、カメラが打者本人なので
+ * 打者と打者走者の体を出さない。反対の打席の視点では打者が見えたままにする。
+ */
+export function batterIsCamera(args: {
+  preset: string;
+  bats: "R" | "L";
+  homeRun: boolean;
+  tPlate: number | null;
+  t: number;
+}): boolean {
+  const own = (args.preset === "rhh" && args.bats === "R") || (args.preset === "lhh" && args.bats === "L");
+  return own && args.homeRun && args.tPlate != null && args.t >= args.tPlate;
+}
+
 /** キーフレームの値を時刻で線形補間する。size は 1 キーあたりの成分数。 */
 export function sampleKeys(times: ArrayLike<number>, values: ArrayLike<number>, size: number, time: number): number[] {
   const count = times.length;

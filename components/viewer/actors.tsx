@@ -8,6 +8,7 @@ import { alignPointDirection } from "@/lib/align";
 import { FEET_TO_METERS, statcastDirToWorld, statcastToWorld, type FieldFrame, type Vec3 } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
 import { sampleAt } from "@/lib/clips";
+import type { CameraPreset } from "@/lib/field";
 import { getGear, mittCatches, subscribeGear } from "@/lib/gear";
 import { getSim, trailEnabled } from "@/lib/sim";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
@@ -239,7 +240,7 @@ function rememberProps(): void {
   window.__plateProps = propSource;
 }
 
-export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
+export function Actors({ clip, frame, preset }: { clip: Clip; frame: FieldFrame; preset: CameraPreset }) {
   const [batModel, setBatModel] = useState<THREE.Object3D>(() => anchored(createBat()));
   const [mittModel, setMittModel] = useState<THREE.Object3D>(() => anchored(createMitt()));
   const [vrm, setVrm] = useState<THREE.Object3D | null>(null);
@@ -359,8 +360,8 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
       {human ? (
         <>
           <HumanPitcher template={human} clip={clip} frame={frame} />
-          <HumanBatter template={human} clip={clip} frame={frame} bat={batModel} grip={grip} />
-          <HumanRunners template={human} clip={clip} frame={frame} />
+          <HumanBatter template={human} clip={clip} frame={frame} preset={preset} bat={batModel} grip={grip} />
+          <HumanRunners template={human} clip={clip} frame={frame} preset={preset} />
         </>
       ) : vrm ? (
         <BatterVrm vrm={vrm} frame={frame} face={face} />
