@@ -4,21 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { CAMERA_PRESETS, type CameraPreset, type StadiumReport } from "@/lib/field";
-import { DEFAULT_CLIP_ID, getClip } from "@/lib/clips";
+import { DEFAULT_CLIP_ID, getClip, type Clip } from "@/lib/clips";
 import { beginPlaySample, noteGpu, perf } from "@/lib/perf";
 import { getSim, setSim } from "@/lib/sim";
 import { Button } from "@/components/ui/button";
-import { Hud, selectClip } from "./hud";
+import { GamePanel } from "@/components/game/panel";
 import { FieldScene } from "./scene";
 
 export default function Viewer() {
-  const [clipId, setClipId] = useState(DEFAULT_CLIP_ID);
+  const [clip, setClip] = useState<Clip>(() => getClip(DEFAULT_CLIP_ID));
+  const [snapshot, setSnapshot] = useState({ matchup: "対戦カードを選んでください", balls: 0, strikes: 0, banner: null as string | null });
   const [preset, setPreset] = useState<CameraPreset>("catcher");
   const [night, setNight] = useState(false);
   const [showZone, setShowZone] = useState(true);
   const [showAxis, setShowAxis] = useState(false);
-  const [ao, setAo] = useState(1);
-  const [tone, setTone] = useState<"agx" | "aces">("agx");
+  const ao = 1;
+  const tone = "agx" as const;
   const [report, setReport] = useState<StadiumReport | null>(null);
   const [shiftRubber, setShiftRubber] = useState(0);
   const [dayHdri, setDayHdri] = useState(false);
@@ -30,10 +31,18 @@ export default function Viewer() {
     setSim({ t: getClip(DEFAULT_CLIP_ID).tStart, playing: false, clipId: DEFAULT_CLIP_ID });
   }
 
-  const clip = getClip(clipId);
   const onReport = useCallback((next: StadiumReport) => {
     setReport(next);
   }, []);
+
+  const onSnapshot = useCallback((next: { matchup: string; balls: number; strikes: number; banner: string | null }) => {
+    setSnapshot(next);
+  }, []);
+
+  function play(next: Clip) {
+    setClip(next);
+    setSim({ t: next.tStart, playing: true, speed: 1, holdAtPlate: false, clipId: next.id });
+  }
 
   useEffect(() => {
     window.__platePerf = perf;
@@ -135,7 +144,11 @@ export default function Viewer() {
 
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2">
           <div className="pointer-events-auto max-w-xl rounded-lg bg-[#101410]/80 px-3 py-2 backdrop-blur-sm">
-            <h1 className="text-base font-medium">プレート先端</h1>
+            <h1 className="text-base font-medium">{snapshot.matchup}</h1>
+            <p className="font-mono text-sm">
+              {snapshot.balls}-{snapshot.strikes}
+              {snapshot.banner ? ` · ${snapshot.banner}` : ""}
+            </p>
             <p className="text-xs text-[#c5cdc4]">
               {report == null
                 ? "球場を読み込んでいます"
@@ -173,22 +186,15 @@ export default function Viewer() {
           ))}
         </div>
       </div>
-      <Hud
-        clip={clip}
-        report={report}
+      <GamePanel
         night={night}
-        dayHdri={dayHdri}
-        nightHdri={nightHdri}
         showZone={showZone}
         showAxis={showAxis}
-        ao={ao}
-        tone={tone}
-        onAo={setAo}
-        onTone={setTone}
-        onClip={(id) => selectClip(id, setClipId)}
         onNight={setNight}
         onZone={setShowZone}
         onAxis={setShowAxis}
+        onClip={play}
+        onSnapshot={onSnapshot}
       />
     </div>
   );

@@ -25,7 +25,7 @@ export type Clip = {
   pitcher: string | null;
   gameDate: string | null;
   throws: "R" | "L" | null;
-  pitchType: "FF" | "SL" | "CU" | null;
+  pitchType: string | null;
   spinRpm: number | null;
   spinAxisDeg: number | null;
   release: { x: number; y: number; z: number; mph: number } | null;
@@ -45,7 +45,7 @@ export type PitchDef = PitchKinematics & {
   pitcher: string;
   gameDate: string;
   throws: "R" | "L";
-  pitchType: "FF" | "SL" | "CU";
+  pitchType: string;
   spinRpm: number | null;
   spinAxisDeg: number | null;
   szTop?: number;
@@ -74,7 +74,7 @@ function pitchFromStatcast(pitch: StatcastPitch): PitchDef {
     id: pitch.id,
     name: `${name} · ${pitch.pitcher}`,
     detail: `${hand} · ${pitch.gameDate}`,
-    color: PITCH_COLOR[pitch.pitchType],
+    color: PITCH_COLOR[pitch.pitchType] ?? "#f4f1ea",
     recordedPlateX: pitch.plateX,
     recordedPlateZ: pitch.plateZ,
     pitcher: pitch.pitcher,

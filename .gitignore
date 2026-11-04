@@ -2,6 +2,10 @@
 
 # dependencies
 /node_modules
+/server/.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
 /.pnp
 .pnp.*
 .yarn/*
