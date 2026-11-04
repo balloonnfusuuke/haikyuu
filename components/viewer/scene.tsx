@@ -9,7 +9,9 @@ import type { Clip } from "@/lib/clips";
 import { statcastToWorld } from "@/lib/coords";
 import { ballCamera, cameraPose, chaseCamera, type CameraPreset, type StadiumReport } from "@/lib/field";
 import { gazeSample, gazeTracking, stepGaze } from "@/lib/gaze";
+import { getGear } from "@/lib/gear";
 import { ballWorld, getSim } from "@/lib/sim";
+import { convictionOffset, convictionTravel } from "@/lib/walk";
 import { Actors, ArrivalRing, BallTrail, CallZone, LandingMark, StrikeZone } from "./actors";
 import { PitchBall } from "./ball";
 import { FieldLighting } from "./lighting";
@@ -33,12 +35,14 @@ function CameraRig({
   const controls = useThree((state) => state.controls) as { target: THREE.Vector3 } | null;
   const blend = useRef(1);
   const followed = useRef(false);
+  const strolled = useRef(false);
   const goalPos = useRef(new THREE.Vector3());
   const goalTarget = useRef(new THREE.Vector3());
 
   useEffect(() => {
     blend.current = 1;
     followed.current = false;
+    strolled.current = false;
   }, [preset, frame, catcher]);
 
   useFrame((_, delta) => {
@@ -56,10 +60,25 @@ function CameraRig({
       orbit.target.copy(goalTarget.current);
       return;
     }
-    if (orbit.enabled === false) orbit.enabled = true;
     const pose = cameraPose(preset === "ball" || preset === "chase" ? "catcher" : preset, frame, catcher);
-    goalPos.current.set(pose.position.x, pose.position.y, pose.position.z);
+    const clock = getSim().t;
+    const travel = convictionTravel({
+      preset,
+      homeRun: getGear().homeRun,
+      hit: clip.noise === "hit" || clip.kind === "batted",
+      t: clock,
+      tContact: clip.tPlate ?? (clip.kind === "batted" ? clip.tStart : null),
+    });
+    const shift = convictionOffset(frame, travel.distanceM, travel.bobM);
+    goalPos.current.set(pose.position.x + shift.x, pose.position.y + shift.y, pose.position.z + shift.z);
     goalTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
+    const strolling = travel.distanceM > 0;
+    if (strolling) {
+      orbit.enabled = false;
+      strolled.current = true;
+    } else if (orbit.enabled === false) {
+      orbit.enabled = true;
+    }
     if (blend.current > 0) {
       const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.5));
       camera.position.lerp(goalPos.current, alpha);
@@ -70,7 +89,14 @@ function CameraRig({
       return;
     }
 
-    const t = getSim().t;
+    if (strolling) {
+      camera.position.copy(goalPos.current);
+    } else if (strolled.current) {
+      camera.position.copy(goalPos.current);
+      strolled.current = false;
+    }
+
+    const t = clock;
     const tracking = gazeTracking(clip, t);
     if (tracking) followed.current = true;
     const sample = tracking ? gazeSample(clip, t) : null;

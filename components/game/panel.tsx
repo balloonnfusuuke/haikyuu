@@ -193,6 +193,7 @@ export function GamePanel({
       calledX,
       calledZ,
       outcome: thrown.decision.outcome,
+      homeRun: thrown.decision.park?.bip === "home_run",
       bases,
       advance: playKind(thrown.result.pa, thrown.decision.bip),
     });

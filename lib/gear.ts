@@ -8,6 +8,8 @@ export type Gear = {
   calledZ: number | null;
   /** ゲームの結果。null はまだ投球していない。 */
   outcome: string | null;
+  /** この打球が甲子園のフェンスを越えた本塁打か。 */
+  homeRun: boolean;
   mittView: MittView;
   /** 投げる前の走者。 */
   bases: Bases;
@@ -22,6 +24,7 @@ let gear: Gear = {
   calledX: null,
   calledZ: null,
   outcome: null,
+  homeRun: false,
   mittView: "down",
   bases: EMPTY_BASES,
   advance: null,
