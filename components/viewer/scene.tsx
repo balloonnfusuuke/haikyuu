@@ -8,6 +8,7 @@ import type { Vec3 } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
 import { statcastToWorld } from "@/lib/coords";
 import { ballCamera, cameraPose, chaseCamera, type CameraPreset, type StadiumReport } from "@/lib/field";
+import { gazeSample, gazeTracking, stepGaze } from "@/lib/gaze";
 import { ballWorld, getSim } from "@/lib/sim";
 import { Actors, ArrivalRing, BallTrail, CallZone, LandingMark, StrikeZone } from "./actors";
 import { PitchBall } from "./ball";
@@ -15,28 +16,34 @@ import { FieldLighting } from "./lighting";
 import { Stadium } from "./stadium";
 import { ToneMap } from "./tone";
 
+const SEAT_POLAR = Math.PI / 2 + 0.45;
+
 function CameraRig({
   preset,
   frame,
   catcher,
+  clip,
 }: {
   preset: CameraPreset;
   frame: NonNullable<StadiumReport["frame"]>;
   catcher: Vec3 | null;
+  clip: Clip;
 }) {
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls) as { target: THREE.Vector3 } | null;
   const blend = useRef(1);
+  const followed = useRef(false);
   const goalPos = useRef(new THREE.Vector3());
   const goalTarget = useRef(new THREE.Vector3());
 
   useEffect(() => {
     blend.current = 1;
+    followed.current = false;
   }, [preset, frame, catcher]);
 
   useFrame((_, delta) => {
     if (!controls) return;
-    const orbit = controls as { enabled?: boolean; target: THREE.Vector3 };
+    const orbit = controls as { enabled?: boolean; target: THREE.Vector3; maxPolarAngle: number };
     const followBall = (preset === "ball" || preset === "chase") && ballWorld.ready;
     if (followBall) {
       orbit.enabled = false;
@@ -50,16 +57,58 @@ function CameraRig({
       return;
     }
     if (orbit.enabled === false) orbit.enabled = true;
-    if (blend.current <= 0) return;
     const pose = cameraPose(preset === "ball" || preset === "chase" ? "catcher" : preset, frame, catcher);
     goalPos.current.set(pose.position.x, pose.position.y, pose.position.z);
     goalTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
-    const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.5));
-    camera.position.lerp(goalPos.current, alpha);
-    orbit.target.lerp(goalTarget.current, alpha);
-    if (camera.position.distanceTo(goalPos.current) < 0.03 && orbit.target.distanceTo(goalTarget.current) < 0.03) {
-      blend.current = 0;
+    if (blend.current > 0) {
+      const alpha = 1 - Math.exp(-8 * Math.min(delta, 0.5));
+      camera.position.lerp(goalPos.current, alpha);
+      orbit.target.lerp(goalTarget.current, alpha);
+      if (camera.position.distanceTo(goalPos.current) < 0.03 && orbit.target.distanceTo(goalTarget.current) < 0.03) {
+        blend.current = 0;
+      }
+      return;
     }
+
+    const t = getSim().t;
+    const tracking = gazeTracking(clip, t);
+    if (tracking) followed.current = true;
+    const sample = tracking ? gazeSample(clip, t) : null;
+    const world = sample ? statcastToWorld(frame, sample.x, sample.y, sample.z) : null;
+    if (followed.current) {
+      const next = stepGaze({
+        camera: camera.position,
+        target: orbit.target,
+        rest: goalTarget.current,
+        focus: world,
+        dt: delta,
+      });
+      const settled =
+        !tracking &&
+        orbit.target.distanceTo(goalTarget.current) < 0.08 &&
+        Math.hypot(next.x - goalTarget.current.x, next.y - goalTarget.current.y, next.z - goalTarget.current.z) < 0.08;
+      if (!settled) {
+        orbit.target.set(next.x, next.y, next.z);
+        orbit.maxPolarAngle = Math.PI - 0.05;
+      } else {
+        followed.current = false;
+      }
+    }
+    if (!followed.current) {
+      const offsetY = camera.position.y - orbit.target.y;
+      const offsetLen = camera.position.distanceTo(orbit.target) || 1;
+      const phi = Math.acos(Math.min(1, Math.max(-1, offsetY / offsetLen)));
+      if (phi <= SEAT_POLAR + 0.02) orbit.maxPolarAngle = SEAT_POLAR;
+    }
+    window.__plateGaze = {
+      tracking,
+      x: orbit.target.x,
+      y: orbit.target.y,
+      z: orbit.target.z,
+      camX: camera.position.x,
+      camY: camera.position.y,
+      camZ: camera.position.z,
+    };
   }, -2);
 
   return null;
@@ -159,7 +208,7 @@ export function FieldScene({
             minDistance={0.15}
             maxDistance={190}
           />
-          <CameraRig preset={preset} frame={report.frame} catcher={report.catcherCam} />
+          <CameraRig preset={preset} frame={report.frame} catcher={report.catcherCam} clip={clip} />
         </>
       )}
     </>

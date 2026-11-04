@@ -55,9 +55,17 @@ export default function Viewer() {
     setSim({ t: next.tStart, playing: true, speed: 1, holdAtPlate: false, clipId: next.id });
   }
 
+  const playRef = useRef(play);
+  playRef.current = play;
+
   useEffect(() => {
     window.__platePerf = perf;
-    window.__plateControl = { getSim, setSim, beginPlaySample };
+    window.__plateControl = {
+      getSim,
+      setSim,
+      beginPlaySample,
+      showClip: (id: string) => playRef.current(getClip(id)),
+    };
     window.__plateGear = { getGear, setGear };
     window.__plateProps = propSource;
   }, []);

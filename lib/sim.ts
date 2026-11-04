@@ -74,6 +74,16 @@ declare global {
       getSim: () => SimState;
       setSim: (patch: Partial<SimState>) => void;
       beginPlaySample: () => void;
+      showClip?: (id: string) => void;
+    };
+    __plateGaze?: {
+      tracking: boolean;
+      x: number;
+      y: number;
+      z: number;
+      camX: number;
+      camY: number;
+      camZ: number;
     };
     __plateProps?: {
       ball: string;
