@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { Line } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { alignPointDirection } from "@/lib/align";
-import { statcastDirToWorld, statcastToWorld, type FieldFrame, type Vec3 } from "@/lib/coords";
+import { FEET_TO_METERS, statcastDirToWorld, statcastToWorld, type FieldFrame, type Vec3 } from "@/lib/coords";
 import type { Clip } from "@/lib/clips";
 import { sampleAt } from "@/lib/clips";
 import { getGear, mittCatches, subscribeGear } from "@/lib/gear";
 import { getSim, trailEnabled } from "@/lib/sim";
 import { PLATE_FRONT_FT, PLATE_HALF_WIDTH_FT } from "@/lib/field-constants";
+import { getSign, pickCell, subscribeSign } from "@/lib/sign";
+import { cellRect } from "@/lib/zone-grid";
 import {
   batterFeet,
   FIGURE_BODY_LENGTH_M,
@@ -82,17 +84,77 @@ export function BallTrail({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
 }
 
 export function StrikeZone({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
+  const sign = useSyncExternalStore(subscribeSign, getSign, getSign);
+  const szBot = sign.interactive ? sign.szBot : clip.szBot;
+  const szTop = sign.interactive ? sign.szTop : clip.szTop;
   const points = useMemo(() => {
     const y = PLATE_FRONT_FT;
     const corners = [
-      statcastToWorld(frame, -PLATE_HALF_WIDTH_FT, y, clip.szBot),
-      statcastToWorld(frame, PLATE_HALF_WIDTH_FT, y, clip.szBot),
-      statcastToWorld(frame, PLATE_HALF_WIDTH_FT, y, clip.szTop),
-      statcastToWorld(frame, -PLATE_HALF_WIDTH_FT, y, clip.szTop),
+      statcastToWorld(frame, -PLATE_HALF_WIDTH_FT, y, szBot),
+      statcastToWorld(frame, PLATE_HALF_WIDTH_FT, y, szBot),
+      statcastToWorld(frame, PLATE_HALF_WIDTH_FT, y, szTop),
+      statcastToWorld(frame, -PLATE_HALF_WIDTH_FT, y, szTop),
     ];
     return [...corners, corners[0]].map(toVector);
-  }, [clip.szBot, clip.szTop, frame]);
+  }, [szBot, szTop, frame]);
   return <Line points={points} color="#f6e7a8" lineWidth={2} />;
+}
+
+/** 捕手から見て、コースの 5×5 を押して配球する。見た目は薄い板で、形は変えない。 */
+export function CallZone({ frame }: { frame: FieldFrame }) {
+  const sign = useSyncExternalStore(subscribeSign, getSign, getSign);
+  const face = useMemo(() => {
+    const towardCatcher = new THREE.Vector3(-frame.forward.x, -frame.forward.y, -frame.forward.z);
+    const up = new THREE.Vector3(frame.up.x, frame.up.y, frame.up.z);
+    const right = new THREE.Vector3().crossVectors(up, towardCatcher);
+    if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+    else right.normalize();
+    const matrix = new THREE.Matrix4().makeBasis(right, up, towardCatcher);
+    return new THREE.Quaternion().setFromRotationMatrix(matrix);
+  }, [frame]);
+  if (!sign.interactive) return null;
+  return (
+    <group>
+      {Array.from({ length: 25 }, (_, index) => {
+        const rect = cellRect(index, sign.szBot, sign.szTop);
+        const center = statcastToWorld(frame, (rect.x0 + rect.x1) / 2, PLATE_FRONT_FT, (rect.z0 + rect.z1) / 2);
+        const selected = index === sign.cell;
+        const strike = sign.strikeCells.includes(index);
+        return (
+          <mesh
+            key={index}
+            position={[
+              center.x - frame.forward.x * 0.04,
+              center.y - frame.forward.y * 0.04,
+              center.z - frame.forward.z * 0.04,
+            ]}
+            quaternion={face}
+            onClick={(event) => {
+              event.stopPropagation();
+              pickCell(index);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerOver={(event) => {
+              event.stopPropagation();
+              document.body.style.cursor = "pointer";
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = "";
+            }}
+          >
+            <planeGeometry args={[Math.abs(rect.x1 - rect.x0) * FEET_TO_METERS * 0.92, Math.abs(rect.z1 - rect.z0) * FEET_TO_METERS * 0.92]} />
+            <meshBasicMaterial
+              color={selected ? "#e24b4b" : strike ? "#f6e7a8" : "#d7e0d4"}
+              transparent
+              opacity={selected ? 0.42 : strike ? 0.16 : 0.08}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
 }
 
 export function ArrivalRing({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
@@ -254,6 +316,13 @@ export function Actors({ clip, frame }: { clip: Clip; frame: FieldFrame }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    mittModel.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh) mesh.raycast = () => {};
+    });
+  }, [mittModel]);
 
   const grip = useMemo(() => readGrip(batModel), [batModel]);
   const pocket = useMemo(() => localMarker(mittModel, "Marker_Pocket"), [mittModel]);

@@ -6,6 +6,8 @@ import { advanceRunners, basesLabel, EMPTY_BASES, playKind, type Bases } from "@
 import { setGear, type MittView } from "@/lib/gear";
 import { clipFromPitch, type ContactFlight } from "@/lib/game-clip";
 import { getSim, setSim, setTrail } from "@/lib/sim";
+import { magnusDirection } from "@/lib/spin";
+import { setCellPicker, setSign } from "@/lib/sign";
 import { cellCenter } from "@/lib/zone-grid";
 import type { Clip } from "@/lib/clips";
 import {
@@ -100,6 +102,7 @@ export function GamePanel({
   const [pending, setPending] = useState<ThrownPitch | null>(null);
   const [replaySpeed, setReplaySpeed] = useState(1);
   const [trail, setTrailOn] = useState(true);
+  const [recordsOpen, setRecordsOpen] = useState(false);
   const serial = useRef(0);
 
   useEffect(() => {
@@ -308,18 +311,36 @@ export function GamePanel({
     const [calledX, calledZ] = cellCenter(cell, batter.szBot, batter.szTop);
     setGear({ bats: batter.bats, calledX, calledZ });
   }, [batter, cell]);
+
+  useEffect(() => {
+    setCellPicker(setCell);
+    return () => setCellPicker(() => {});
+  }, []);
+
   const calling = mode === "pa" || !inningOver;
 
-  return (
-    <aside className="flex h-[48dvh] w-full shrink-0 flex-col gap-3 overflow-y-auto border-t border-[#2a342c] bg-[#121714] p-4 md:h-dvh md:w-[400px] md:border-l md:border-t-0">
-      <div>
-        <h2 className="text-base font-medium">{mode === "inning" ? "1イニング" : "1打席"}</h2>
-        <p className="text-xs leading-relaxed text-[#8b968c]">
-          捕手として球種とコースを選びます。飛んでくる球は、その投手の公式戦から、狙いに近い実在の1球です。
-        </p>
-      </div>
+  useEffect(() => {
+    if (!roster || !batter) {
+      setSign({ interactive: false });
+      return;
+    }
+    setSign({
+      cell,
+      szTop: batter.szTop,
+      szBot: batter.szBot,
+      strikeCells: roster.strikeCells,
+      interactive: calling,
+    });
+  }, [roster, batter, cell, calling]);
 
-      <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="遊び方">
+  const aimLabel =
+    roster && columns ? `${roster.rows[Math.floor(cell / 5)]}・${columns[cell % 5] ?? ""}` : "真ん中";
+  const shown = pending ?? last;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      <div className="pointer-events-auto absolute left-3 top-24 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-black/40 px-2 py-1.5 text-white shadow-lg backdrop-blur-md">
+      <div className="flex gap-1.5" role="group" aria-label="遊び方">
         <Button type="button" size="sm" variant={mode === "pa" ? "default" : "outline"} onClick={() => { setMode("pa"); clearInning(); }}>
           1打席
         </Button>
@@ -338,11 +359,11 @@ export function GamePanel({
         <p className="text-sm text-[#c5cdc4]">名簿を読み込んでいます。</p>
       ) : (
         <>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-[#8b968c]">投手</span>
+          <label className="block text-xs">
+            <span className="sr-only">投手</span>
             <select
               aria-label="投手"
-              className="w-full rounded-md border border-[#2a342c] bg-[#0e1210] px-2 py-2"
+              className="max-w-40 rounded-md border border-white/15 bg-black/40 px-2 py-1"
               value={pitcherId ?? ""}
               disabled={mode === "inning" && pitchCount > 0}
               onChange={(event) => {
@@ -360,11 +381,11 @@ export function GamePanel({
           </label>
 
           {mode === "pa" ? (
-            <label className="block text-sm">
-              <span className="mb-1 block text-xs text-[#8b968c]">打者</span>
+            <label className="block text-xs">
+              <span className="sr-only">打者</span>
               <select
                 aria-label="打者"
-                className="w-full rounded-md border border-[#2a342c] bg-[#0e1210] px-2 py-2"
+                className="max-w-40 rounded-md border border-white/15 bg-black/40 px-2 py-1"
                 value={batterId ?? ""}
                 onChange={(event) => {
                   setBatterId(Number(event.target.value));
@@ -406,86 +427,59 @@ export function GamePanel({
           )}
 
           {mode === "inning" && (
-            <div className="grid grid-cols-4 gap-1.5 text-center">
-              <CountFigure label="アウト" value={outs} />
-              <CountFigure label="失点" value={runs} />
-              <CountFigure label="球数" value={pitchCount} />
-              <div className="rounded-md bg-[#0e1210] px-1 py-2">
-                <p className="text-xs text-[#8b968c]">走者</p>
-                <p className="text-xs leading-tight">{basesLabel(bases)}</p>
-              </div>
-            </div>
+            <p className="text-xs text-white/80">
+              {spot + 1}番 {batter?.name} · アウト {outs} · {basesLabel(bases)} · 失点 {runs} · {pitchCount}球
+            </p>
           )}
+          <p className="text-xs text-white/75">狙い {aimLabel}</p>
+          <div className="sr-only">
+            <ZoneGrid roster={roster} columns={columns} cells={cells} cell={cell} onPick={setCell} />
+          </div>
+        </>
+      )}
+      </div>
 
-          {calling && (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <CountFigure label="ボール" value={balls} />
-                <CountFigure label="ストライク" value={strikes} />
-              </div>
-              {mode === "inning" && batter && (
-                <p className="text-sm">
-                  打席 {spot + 1} · {batter.name}
-                </p>
-              )}
-              <PitchPicker pitcher={pitcher} pitchType={pitchType} onPick={setPitchType} />
-              <ZoneGrid roster={roster} columns={columns} cells={cells} cell={cell} onPick={setCell} />
-              <SeedAlpha seed={seed} alpha={alpha} onSeed={setSeed} onAlpha={setAlpha} />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  disabled={busy || pending != null || !pitchType || (mode === "pa" && Boolean(over)) || inningOver}
-                  onClick={() => void throwPitch()}
-                >
-                  {busy ? "選球中" : "投げる"}
-                </Button>
-                <Button type="button" disabled={pending == null} onClick={commitPending}>
-                  次の球
-                </Button>
-                <Button type="button" variant="secondary" onClick={() => (mode === "inning" ? clearInning() : clearPlate())}>
-                  {mode === "inning" ? "イニングをやり直す" : "次の打席"}
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <Button type="button" size="sm" variant={replaySpeed === 1 ? "secondary" : "outline"} onClick={() => setSpeed(1)}>
-                  等速
-                </Button>
-                <Button type="button" size="sm" variant={replaySpeed === 0.25 ? "secondary" : "outline"} onClick={() => setSpeed(0.25)}>
-                  1/4
-                </Button>
-                <Button type="button" size="sm" variant={replaySpeed === 0.1 ? "secondary" : "outline"} onClick={() => setSpeed(0.1)}>
-                  1/10
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={togglePlay}>
-                  再生
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={stepFrame}>
-                  コマ送り
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={replayClip}>
-                  もう一度
-                </Button>
-                <Button type="button" size="sm" variant={trail ? "secondary" : "outline"} onClick={toggleTrail}>
-                  軌跡
-                </Button>
-              </div>
-              {(pending ?? last) && <LastPitch last={(pending ?? last) as ThrownPitch} />}
-              <PitchLog log={log} />
-            </>
-          )}
-
-          {mode === "inning" && plates.length > 0 && (
-            <InningReview plates={plates} runs={runs} pitchCount={pitchCount} done={inningOver} onAgain={clearInning} />
-          )}
-
-          {mode === "pa" && <HoldoutNote report={report} error={holdoutError} loading={holdout === null && !holdoutError} />}
-
+      {roster && calling && (
+        <div className="pointer-events-auto absolute inset-x-3 bottom-16 flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/40 p-2 shadow-lg backdrop-blur-md">
+          <p className="text-[11px] text-white/70">ゾーンのマスを押してコース。球種を選んで投げる。</p>
+          <PitchPicker pitcher={pitcher} pitchType={pitchType} onPick={setPitchType} />
           <div className="flex flex-wrap gap-1.5">
-            <Button type="button" size="sm" variant={night ? "outline" : "secondary"} onClick={() => onNight(false)}>
-              昼
+            <Button
+              type="button"
+              disabled={busy || pending != null || !pitchType || (mode === "pa" && Boolean(over)) || inningOver}
+              onClick={() => void throwPitch()}
+            >
+              {busy ? "選球中" : "投げる"}
             </Button>
-            <Button type="button" size="sm" variant={night ? "secondary" : "outline"} onClick={() => onNight(true)}>
-              ナイター
+            <Button type="button" disabled={pending == null} onClick={commitPending}>
+              次の球
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => (mode === "inning" ? clearInning() : clearPlate())}>
+              {mode === "inning" ? "イニングをやり直す" : "次の打席"}
+            </Button>
+            <Button type="button" size="sm" variant={replaySpeed === 1 ? "secondary" : "outline"} onClick={() => setSpeed(1)}>
+              等速
+            </Button>
+            <Button type="button" size="sm" variant={replaySpeed === 0.25 ? "secondary" : "outline"} onClick={() => setSpeed(0.25)}>
+              1/4
+            </Button>
+            <Button type="button" size="sm" variant={replaySpeed === 0.1 ? "secondary" : "outline"} onClick={() => setSpeed(0.1)}>
+              1/10
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={togglePlay}>
+              再生
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={stepFrame}>
+              コマ送り
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={replayClip}>
+              もう一度
+            </Button>
+            <Button type="button" size="sm" variant={trail ? "secondary" : "outline"} onClick={toggleTrail}>
+              軌跡
+            </Button>
+            <Button type="button" size="sm" variant={night ? "secondary" : "outline"} onClick={() => onNight(!night)}>
+              {night ? "ナイター" : "昼"}
             </Button>
             <Button type="button" size="sm" variant={showZone ? "secondary" : "outline"} onClick={() => onZone(!showZone)}>
               ゾーン
@@ -499,10 +493,37 @@ export function GamePanel({
             <Button type="button" size="sm" variant={mittView === "clear" ? "secondary" : "outline"} onClick={() => pickMitt("clear")}>
               ミットを透かす
             </Button>
+            <Button type="button" size="sm" variant={recordsOpen ? "secondary" : "outline"} onClick={() => setRecordsOpen((open) => !open)}>
+              記録
+            </Button>
           </div>
-        </>
+        </div>
       )}
-    </aside>
+
+      {shown && batter && !recordsOpen && (
+        <div className="absolute right-3 top-3 max-md:left-3 max-md:right-auto max-md:top-auto max-md:bottom-52">
+          <PitchReadout last={shown} bats={batter.bats} />
+        </div>
+      )}
+
+      {recordsOpen && roster && (
+        <div className="pointer-events-auto absolute bottom-16 right-3 top-3 flex w-[min(22rem,calc(100%-1.5rem))] flex-col gap-3 overflow-y-auto rounded-xl border border-white/10 bg-black/50 p-3 text-white shadow-lg backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">記録</h2>
+            <Button type="button" size="sm" variant="outline" onClick={() => setRecordsOpen(false)}>
+              閉じる
+            </Button>
+          </div>
+          {shown && batter && <PitchReadout last={shown} bats={batter.bats} />}
+          <SeedAlpha seed={seed} alpha={alpha} onSeed={setSeed} onAlpha={setAlpha} />
+          <PitchLog log={log} />
+          {mode === "inning" && plates.length > 0 && (
+            <InningReview plates={plates} runs={runs} pitchCount={pitchCount} done={inningOver} onAgain={clearInning} />
+          )}
+          {mode === "pa" && <HoldoutNote report={report} error={holdoutError} loading={holdout === null && !holdoutError} />}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -552,15 +573,6 @@ function personLabel(person: PitcherCard | BatterCard): string {
   return `${person.name}（${person.bats === "L" ? "左打" : "右打"}）`;
 }
 
-function CountFigure({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md bg-[#0e1210] px-2 py-2">
-      <p className="text-xs text-[#8b968c]">{label}</p>
-      <p className="font-mono text-2xl">{value}</p>
-    </div>
-  );
-}
-
 function PitchPicker({
   pitcher,
   pitchType,
@@ -572,7 +584,6 @@ function PitchPicker({
 }) {
   return (
     <div>
-      <p className="mb-1 text-xs text-[#8b968c]">球種（この投手が公式戦で投げたもの）</p>
       <div className="flex flex-wrap gap-1.5">
         {pitcher?.arsenal.map((item) => (
           <Button key={item.code} type="button" size="sm" variant={pitchType === item.code ? "default" : "outline"} onClick={() => onPick(item.code)}>
@@ -670,30 +681,80 @@ function SeedAlpha({
   );
 }
 
-function LastPitch({ last }: { last: ThrownPitch }) {
+function mphPair(mph: number): string {
+  return `${mph.toFixed(1)} mph · ${(mph * 1.609344).toFixed(1)} km/h`;
+}
+
+function axisPhrase(degrees: number): string {
+  const force = magnusDirection(degrees);
+  const vertical = force.z > 0.35 ? "上向き" : force.z < -0.35 ? "下向き" : "";
+  const horizontal = force.x > 0.35 ? "捕手から右" : force.x < -0.35 ? "捕手から左" : "";
+  return [vertical, horizontal].filter(Boolean).join("・");
+}
+
+function sprayWords(spray: number | null, bats: "R" | "L"): string {
+  if (spray == null) return "";
+  const pull = bats === "L" ? spray > 15 : spray < -15;
+  const oppo = bats === "L" ? spray < -15 : spray > 15;
+  if (pull) return "引っ張り";
+  if (oppo) return "逆方向";
+  return "センター";
+}
+
+const BB_LABEL: Record<string, string> = {
+  ground_ball: "ゴロ",
+  line_drive: "ライナー",
+  fly_ball: "フライ",
+  popup: "ポップフライ",
+};
+
+function PitchReadout({ last, bats }: { last: ThrownPitch; bats: "R" | "L" }) {
+  const pitch = last.pitch;
   const decision = last.decision;
-  const speed =
-    decision.exitSpeed == null
-      ? null
-      : `${decision.exitSpeed.toFixed(1)} mph（${(decision.exitSpeed * 1.609344).toFixed(1)} km/h）`;
-  const distance = decision.hitDistance == null ? null : `${Math.round(decision.hitDistance)} ft`;
+  const direction = [sprayWords(decision.spray, bats), decision.bbType ? BB_LABEL[decision.bbType] ?? decision.bbType : ""]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <div className="rounded-md bg-[#1b221c] px-3 py-2 text-sm">
-      <p className="font-medium">{last.result.paLabel ?? last.result.label}</p>
-      {speed && (
-        <p className="mt-1 font-mono text-xs text-[#f4f1ea]">
-          打球速度 {speed}
-          {decision.launchAngle != null ? ` · 角度 ${decision.launchAngle.toFixed(1)}°` : ""}
-          {distance ? ` · 飛距離 ${distance}` : ""}
-        </p>
-      )}
-      <p className="mt-1 text-xs leading-relaxed text-[#c5cdc4]">
-        狙い {last.call.label}、実際 {last.call.actualLabel}
-        {last.call.inZone ? "（ゾーン内）" : "（ゾーン外）"}。スイング {percent(decision.pSwing)}
-        、空振り {percent(decision.pWhiff)}。
-        {decision.repeatStreak > 0 ? ` 同じ球が ${decision.repeatStreak} 球続いています。` : ""}
-        結果を見てから「次の球」で進みます。
+    <div className="pointer-events-none w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-white shadow-lg backdrop-blur-md">
+      <p className="text-sm font-medium">
+        {pitch.pitchName}
+        <span className="ml-2 font-normal text-white/75">{last.result.paLabel ?? last.result.label}</span>
       </p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+        <Stat label="球速" value={pitch.releaseSpeed == null ? "—" : mphPair(pitch.releaseSpeed)} wide />
+        <Stat label="回転" value={pitch.spinRpm == null ? "—" : `${Math.round(pitch.spinRpm).toLocaleString("ja-JP")} rpm`} />
+        <Stat
+          label="回転軸"
+          value={pitch.spinAxis == null ? "—" : `${Math.round(pitch.spinAxis)}° ${axisPhrase(pitch.spinAxis)}`.trim()}
+        />
+        <Stat label="狙い" value={last.call.label} />
+        <Stat label="到達" value={`${last.call.actualLabel}${last.call.inZone ? " · ゾーン内" : " · ゾーン外"}`} />
+      </dl>
+      {decision.exitSpeed != null && (
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/15 pt-2">
+          <Stat label="打球速度" value={mphPair(decision.exitSpeed)} wide />
+          <Stat label="角度" value={decision.launchAngle == null ? "—" : `${decision.launchAngle.toFixed(1)}°`} />
+          <Stat
+            label="飛距離"
+            value={
+              decision.hitDistance == null
+                ? "—"
+                : `${Math.round(decision.hitDistance)} ft · ${Math.round(decision.hitDistance * 0.3048)} m`
+            }
+          />
+          <Stat label="方向" value={direction || "—"} />
+          {decision.batSpeed != null && <Stat label="バット速度" value={mphPair(decision.batSpeed)} wide />}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={wide ? "col-span-2" : undefined}>
+      <dt className="text-[10px] text-white/55">{label}</dt>
+      <dd className="font-mono text-[13px] leading-tight">{value}</dd>
     </div>
   );
 }

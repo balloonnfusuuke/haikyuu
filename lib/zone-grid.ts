@@ -17,10 +17,20 @@ function rowEdges(szBot: number, szTop: number): number[] {
 
 /** 5×5 のマス中心。行 0 が最も高い。単位はフィート。 */
 export function cellCenter(cell: number, szBot: number, szTop: number): [number, number] {
+  const rect = cellRect(cell, szBot, szTop);
+  return [(rect.x0 + rect.x1) / 2, (rect.z0 + rect.z1) / 2];
+}
+
+/** マスの境界。x は捕手から見て右が正、z は高さ。行 0 が最も高い。 */
+export function cellRect(
+  cell: number,
+  szBot: number,
+  szTop: number,
+): { x0: number; x1: number; z0: number; z1: number } {
   const row = Math.floor(cell / COLS);
   const col = cell % COLS;
   const xs = columnEdges();
   const zs = rowEdges(szBot, szTop);
   const band = ROWS - 1 - row;
-  return [(xs[col] + xs[col + 1]) / 2, (zs[band] + zs[band + 1]) / 2];
+  return { x0: xs[col], x1: xs[col + 1], z0: zs[band], z1: zs[band + 1] };
 }

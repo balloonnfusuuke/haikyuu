@@ -9,7 +9,7 @@ import type { Clip } from "@/lib/clips";
 import { statcastToWorld } from "@/lib/coords";
 import { ballCamera, cameraPose, chaseCamera, type CameraPreset, type StadiumReport } from "@/lib/field";
 import { ballWorld, getSim } from "@/lib/sim";
-import { Actors, ArrivalRing, BallTrail, LandingMark, StrikeZone } from "./actors";
+import { Actors, ArrivalRing, BallTrail, CallZone, LandingMark, StrikeZone } from "./actors";
 import { PitchBall } from "./ball";
 import { FieldLighting } from "./lighting";
 import { Stadium } from "./stadium";
@@ -146,6 +146,7 @@ export function FieldScene({
           <ContactSound clip={clip} />
           <ReleaseMark clip={clip} frame={report.frame} />
           {showZone && clip.kind === "pitch" && <StrikeZone clip={clip} frame={report.frame} />}
+          <CallZone frame={report.frame} />
           {clip.kind === "pitch" && <ArrivalRing clip={clip} frame={report.frame} />}
           <LandingMark clip={clip} frame={report.frame} />
           <Actors clip={clip} frame={report.frame} />

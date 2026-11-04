@@ -114,8 +114,7 @@ export default function Viewer() {
   }, []);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[#0e1210] text-[#f4f1ea] md:flex-row">
-      <div className="relative min-h-0 flex-1">
+    <div className="relative h-dvh overflow-hidden bg-[#0e1210] text-[#f4f1ea]">
         {webgl ? (
           <Canvas
             className="absolute inset-0"
@@ -159,23 +158,20 @@ export default function Viewer() {
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2">
-          <div className="pointer-events-auto max-w-xl rounded-lg bg-[#101410]/80 px-3 py-2 backdrop-blur-sm">
-            <h1 className="text-base font-medium">{snapshot.matchup}</h1>
+        <div className="pointer-events-none absolute inset-x-3 top-3 flex max-w-xs flex-col gap-2">
+          <div className="pointer-events-auto rounded-xl border border-white/10 bg-black/40 px-3 py-2 shadow-lg backdrop-blur-md">
+            <h1 className="text-sm font-medium">{snapshot.matchup}</h1>
             <p className="font-mono text-sm">
               {snapshot.balls}-{snapshot.strikes}
               {snapshot.banner ? ` · ${snapshot.banner}` : ""}
             </p>
-            {snapshot.inning && <p className="font-mono text-xs text-[#c5cdc4]">{snapshot.inning}</p>}
-            <p className="text-xs text-[#c5cdc4]">
-              {report == null
-                ? "球場を読み込んでいます"
-                : report.source === "placeholder"
-                  ? "stadium.glb が無いので、同じ寸法の仮球場です"
-                  : "stadium.glb を表示しています"}
-            </p>
+            {snapshot.inning && <p className="font-mono text-xs text-white/70">{snapshot.inning}</p>}
+            {report == null && <p className="text-xs text-white/60">球場を読み込んでいます</p>}
+            {report?.source === "placeholder" && (
+              <p className="text-xs text-white/60">stadium.glb が無いので、同じ寸法の仮球場です</p>
+            )}
             {report && (
-              <p className={`mt-1 text-sm ${report.ok ? "text-[#8fd0a8]" : "text-[#ffb4ab]"}`}>{report.message}</p>
+              <p className={`mt-1 text-xs ${report.ok ? "text-[#8fd0a8]" : "text-[#ffb4ab]"}`}>{report.message}</p>
             )}
           </div>
           {report && !report.ok && (
@@ -190,7 +186,7 @@ export default function Viewer() {
           )}
         </div>
 
-        <div className="absolute inset-x-3 bottom-3 flex flex-wrap gap-1.5">
+        <div className="absolute inset-x-3 bottom-3 flex flex-nowrap gap-1.5 overflow-x-auto">
           {CAMERA_PRESETS.map((item) => (
             <Button
               key={item.id}
@@ -203,7 +199,6 @@ export default function Viewer() {
             </Button>
           ))}
         </div>
-      </div>
       <GamePanel
         night={night}
         showZone={showZone}
