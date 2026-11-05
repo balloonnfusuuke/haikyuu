@@ -368,7 +368,7 @@ export function Actors({ clip, frame, preset }: { clip: Clip; frame: FieldFrame;
       ) : (
         <Figure kind="batter" frame={frame} at={[feet.x, feet.y, feet.z]} />
       )}
-      {catcherVrm ? (
+      {human ? null : catcherVrm ? (
         <CatcherVrm vrm={catcherVrm} frame={frame} face={face} at={catcherAt} />
       ) : (
         <Figure kind="catcher" frame={frame} at={catcherAt} />
